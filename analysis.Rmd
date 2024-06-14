@@ -1,0 +1,420 @@
+---
+title: "Data tidying"
+output: html_document
+date: "2024-06-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(sp)
+library(parzer)
+library(lme4)
+library(emmeans)
+library(geosphere)
+library(readxl)
+library(tidyverse)
+```
+
+# Import data
+
+## CRF data
+
+```{r}
+crf0 <- read_xlsx("CRF_FL_Acropora_data_.xlsx")
+
+crf <- crf0 %>%
+  mutate(
+    data_provider = "crf",
+    site = Site,
+    lat = Latitude,
+    lon = Longitude,
+    date = as_date(Date),
+    species = Spp,
+    coral_type = `Wild/Outplant`,
+    n_alive = `N (surviving colonies)`,
+    n_dead = `N (colonies)` - `N (surviving colonies)`,
+    n_geno = `N (Genotypes, if known)`
+  ) %>%
+  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
+         n_alive, n_dead, n_geno)
+```
+
+## Mote data
+
+```{r}
+mml0 <- read_xlsx("FL_Acropora data_MoteMarineLaboratory.xlsx")
+
+mml <- mml0 %>%
+  mutate(
+    data_provider = "mml",
+    site = Site,
+    lat = Latitude,
+    lon = Longitude,
+    date = as_date(Date),
+    species = `Spp (APAL/ACER)`,
+    coral_type = `Wild/Outplant`,
+    n_alive = `N (surviving colonies)`,
+    n_dead = `N (colonies)` - `N (surviving colonies)`,
+    n_geno = `N (Genotypes, if known)`
+  ) %>%
+  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
+         n_alive, n_dead, n_geno)
+```
+
+## NSU data
+
+```{r}
+nsu0 <- read_xlsx("NSU_Gilliam_Acropora data.xlsx")
+
+nsu <- nsu0 %>%
+  mutate(
+    data_provider = "nsu",
+    site = Site,
+    lat = parse_lat(Latitude),
+    lon = parse_lon(Longitude) * -1,
+    date = as_date(Date),
+    species = `Spp (APAL/ACER)`,
+    coral_type = `Wild/Outplant`,
+    n_alive = `N (surviving colonies)`,
+    n_dead = `N (colonies)` - `N (surviving colonies)`,
+    n_geno = `N (Genotypes, if known)`
+  ) %>%
+  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
+         n_alive, n_dead, n_geno)
+```
+
+## UM data
+
+```{r}
+um0 <- read_xlsx("UM_AcroporaData.xlsx")
+
+um <- um0 %>%
+  mutate(
+    data_provider = "um",
+    site = Site,
+    lat = Latitude,
+    lon = Longitude,
+    date = as_date(Date),
+    species = `Spp (APAL/ACER)`,
+    coral_type = `Wild/Outplant`,
+    n_alive = `N (surviving colonies)`,
+    n_dead = `N (colonies)` - `N (surviving colonies)`,
+    n_geno = `N (Genotypes, if known)`
+  ) %>%
+  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
+         n_alive, n_dead, n_geno)
+```
+
+## FWC data
+
+```{r}
+fwc0 <- read_xlsx("FL_APAL_Summary Data.xlsx", sheet = "FWC", 
+                  n_max = 28,
+                  na = c("N/A", "n/a")) %>%
+  filter(Site != "REGION SUMMARY")
+
+fwc <- fwc0 %>%
+  mutate(
+    data_provider = "fwc",
+    site = Site,
+    lat = Latitude,
+    lon = Longitude,
+    date = as_date(Date),
+    species = `Spp`,
+    coral_type = `Wild/Outplant`,
+    n_alive = `N (surviving colonies)`,
+    n_dead = `N (colonies)` - `N (surviving colonies)`,
+    n_geno = `N (Genotypes, if known)`
+  ) %>%
+  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
+         n_alive, n_dead, n_geno)
+```
+
+## USGS data
+
+```{r}
+usgs0 <- read_xlsx("FL_APAL_Summary Data.xlsx", sheet = "KUFFNER", 
+                  n_max = 12,
+                  na = c("N/A", "n/a")) %>%
+  filter(Site != "REGION SUMMARY")
+
+usgs <- usgs0 %>%
+  mutate(
+    data_provider = "usgs",
+    site = Site,
+    lat = Latitude,
+    lon = Longitude,
+    date = as_date(Date),
+    species = `Spp`,
+    coral_type = `Wild/Outplant`,
+    n_alive = `N (surviving colonies)`,
+    n_dead = `N (colonies)` - `N (surviving colonies)`,
+    n_geno = `N (Genotypes, if known)`
+  ) %>%
+  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
+         n_alive, n_dead, n_geno)
+```
+
+## DW data
+
+```{r}
+dw0 <- read_xlsx("FL_APAL_Summary Data_DEW.xlsx", sheet = "DANA W", 
+                  n_max = 12,
+                  na = c("N/A", "n/a")) %>%
+  filter(Site != "REGION SUMMARY")
+
+dw <- dw0 %>%
+  mutate(
+    data_provider = "dw",
+    site = Site,
+    lat = Latitude,
+    lon = Longitude,
+    date = as_date(Date),
+    species = `Spp`,
+    coral_type = `Wild/Outplant`,
+    n_alive = `N (surviving colonies)`,
+    n_dead = `N (colonies)` - `N (surviving colonies)`,
+    n_geno = `N (Genotypes, if known)`
+  ) %>%
+  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
+         n_alive, n_dead, n_geno)
+```
+
+# Combine all data, assign subregions
+```{r}
+df <- bind_rows(
+  crf, dw, fwc, mml, nsu, um, usgs
+) %>%
+  mutate(n_total = n_dead + n_alive,
+         pct_mort = n_dead / n_total)
+
+# Assign Subregions based on DRM subregions
+load("~/Projects/DRM2024/output/2023.RData")
+subregions <- distinct(df23, Site, Latitude, Longitude, Subregion) %>%
+  dplyr::select(site = Site, lat = Latitude, lon = Longitude, subregion = Subregion) %>%
+  drop_na(lat)
+
+# Calculate distances between acropora data locations and drm sites (with subregion info)
+
+# Omit acropora data sites with missing coords
+df <- df %>% drop_na(lat, lon)
+dist_matrix <- distm(df[, c("lat", "lon")], subregions[, c("lat", "lon")], fun = distHaversine)
+
+# Find the nearest location in drm data (with subregion) for each entry in acropora data
+nearest_indices <- apply(dist_matrix, 1, which.min)
+
+# Add nearest subregion to df
+df <- df %>%
+  mutate(subregion = subregions$subregion[nearest_indices]) %>%
+  drop_na(date) %>%
+  droplevels()
+```
+
+# Import DHW data
+```{r}
+# Import all NetCDF files for each date from June 1 through December 31, 2023
+nc.files <- list.files("~/Projects/DRM2024/data/dhw/2023", pattern = "*.nc$", full.names = TRUE)
+
+# Get coordinate box for Florida Reef Tract
+#nc <- nc_open("data/dhw/ct5km_dhw_v3.1_20230901.nc")
+#nct <- ncvar_get(nc, "degree_heating_week", start = c(2000, 1240,1), count = c(21, 81,1))
+# Longitude -83.525 --> index 1930
+#nc$dim$lon$vals[2021]
+# Longitude -78.975 --> index 2021
+# Latitude 24 --> index 1321
+#nc$dim$lat$vals[1240]
+# Latitude 28 --> index 1240
+
+# Get DRM survey site coordinates
+# Import data
+sites <- df %>%
+  distinct(site, subregion, lon, lat) %>%
+  mutate(subregion = factor(subregion, levels = rev(levels(subregion))))
+
+# Open all DHW NCDF4 files
+library(ncdf4) # package for netcdf manipulation
+library(raster) # package for raster manipulation
+nc.data <- tibble(file = nc.files) %>%
+  mutate(date = map_chr(file, ~str_extract(., "2023\\d+"), format = "%Y%m%d"),
+         data = map(file, nc_open),
+      dhw.all = map(data, ~ncvar_get(., "degree_heating_week", start = c(1930, 1240, 1), count = c(91, 81, 1))),
+            r = map(dhw.all, ~raster(t(.), xmn = -83.525, xmx = -78.975, ymn = 23.975, ymx = 28.025,
+                                     crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))),
+       coords = list(sites),
+          dhw = map2(r, coords, ~raster::extract(.x, SpatialPoints(.y[,3:4]), method = "simple")))
+
+out <- nc.data %>% dplyr::select(date, coords, dhw) %>% unnest() %>%
+  mutate(date = as_date(date, format = "%Y%m%d"))
+
+# Check that all sites got DHW values
+dhws <- out %>%
+  group_by(site) %>%
+  dplyr::summarize(avgdhw = mean(dhw))
+nodhw <- dhws %>% filter(is.na(avgdhw))
+#nodhw
+## 20 sites did not get DHW -- outside of 5km pixels (too close to land)
+
+# Assign missing dhws value of closest site that has a dhw value
+library(FastKNN)
+
+# matrix of neighbours
+n <- nrow(sites)
+k <- 25 # Number of nearest neighbors to find
+dm <- dist(sites[,3:4])
+nn <- matrix(0,n,k) # n x k nearest neighbors matrix
+for (i in 1:n) {
+   nn[i,] = k.nearest.neighbors(i, as.matrix(dm), k = k)
+}
+nn[] <- as.character(sites$site)[c(nn)]
+
+# Get names of all sites and their nearest neighbors
+neighbors <- as_tibble(cbind(site = as.character(sites$site), nn))
+# Get dhws of all sites and dhws of their nearest neighbors
+neighborsdhw <- neighbors %>%
+  pivot_longer(-1, names_to = "nno", values_to = "nname") %>%
+  mutate(nno = parse_number(nno) - 1) %>%
+  mutate(navgdhw = dhws$avgdhw[match(nname, dhws$site)])
+
+finddhw <- neighborsdhw %>%
+  filter(site %in% nodhw$site)
+
+dhwmatch <- finddhw %>% 
+  group_by(site) %>%
+  filter(!is.na(navgdhw)) %>%
+  dplyr::summarize(closest_n_with_dhw = nname[nno == min(nno)]) %>%
+  right_join(nodhw) %>%
+  dplyr::select(1, 2)# %>%
+  #print(n = nrow(.))
+  
+# Output matches
+matches <- left_join(dhwmatch, sites)
+#range(matches$Longitude)
+#range(matches$Latitude)
+matches2 <- left_join(dplyr::select(matches, site = closest_n_with_dhw), sites) %>%
+  distinct(site, lon, lat)
+# 
+# # Plot matches
+# library(ggrepel)
+# ggplot(matches, aes(x = lon, y = lat)) +
+#   geom_point() +
+#   geom_point(data = matches2, color = "green") +
+#   geom_label_repel(data = matches2, aes(label = site), color = "green", max.overlaps = 100, force = 80) +
+#   geom_label_repel(aes(label = site), max.overlaps = 100, force = 80) +
+#   xlim(-80.125, -80) +
+#   ylim(26, 26.75)
+
+# Replace missing dhws with values from matching sites
+#matches
+fixing <- out %>%
+  nest(data = c(date, dhw)) 
+
+fixed <- fixing
+### dhw data for sites where missing gets replaced with dhw data for the site of its closest neighbor site with dhw data
+fixed[match(matches$site, fixing$site), "data"] <- fixing[match(matches$closest_n_with_dhw, fixing$site), "data"]
+
+# ### test if it worked (dhw was missing for site 100, should have been replaced with dhw data from KC)
+# fixing %>% filter(site == "100") %>% pull(data)
+# fixed %>% filter(site == "KC") %>% pull(data)
+# 
+# identical(fixed$data[fixed$site == "100"], fixed$data[fixed$site == "KC"])
+# y1 <- fixed$data[fixed$site == "100"][[1]]
+# y2 <- fixed$data[fixed$site == "KC"][[1]]
+# cbind(y1, y2)
+
+# Unnest fixed output
+outfixed <- fixed %>% unnest()
+#outfixed %>% filter(is.na(dhw))
+dhws <- outfixed %>% dplyr::select(site, lon, lat, date, dhw)
+
+# We only downloaded DHW from June through December 2024, but we have Acro survey data from before and after that interval. Those surveys would have DHW values of zero, so add those in...
+df1 <- expand_grid(
+  date = seq(as.Date("2023-03-14"), as.Date("2024-05-10"), by = "days"),
+  dhws %>% distinct(site, lat, lon)
+)
+dhws <- full_join(dhws, df1) %>%
+  arrange(site, lon, lat, date) %>%
+  replace_na(list(dhw = 0))
+
+
+# Get max. DHW value for on OR BEFORE date surveyed
+dhws <- dhws %>%
+  group_by(site) %>%
+  mutate(cummaxdhw = cummax(dhw))
+
+
+# For each survey, join DHW on date of survey, and max DHW experienced on or BEFORE survey
+df <- left_join(df, dhws, by = c("site", "lon", "lat", "date")) %>%
+  mutate(subregion = factor(subregion, levels = levels(sites$subregion)))
+```
+
+# Surveys over space and time
+
+```{r}
+# Map sites
+ggplot(df, aes(x = lon, y = lat, color = subregion)) +
+  geom_point(aes(size = n_total), alpha = 0.3) +
+  scale_size(range = c(1, 10)) +
+  theme_classic()
+
+# Surveys over time
+ggplot(df, aes(x = date, fill = subregion)) +
+  geom_histogram() +
+  scale_x_date(date_breaks = "months", date_labels = "%b") +
+  theme_classic() +
+  labs(y = "Number of sites surveyed")
+
+# Surveys by max DHW experienced anytime prior to survey
+ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
+  geom_histogram() +
+  theme_classic() +
+  labs(y = "Number of sites surveyed")
+```
+
+# Mortality over time by subregion
+
+```{r}
+# Plot Percent mortality over time
+mort <- ggplot(df, aes(x = date, y = pct_mort, color = subregion)) +
+  geom_point(aes(size = n_total, shape = coral_type), alpha = 0.4) +
+  scale_size(range = c(2,8)) +
+  scale_x_date(date_breaks = "months", date_labels = "%b") +
+  theme_classic() +
+  facet_grid(subregion~species)
+
+# Fit model
+mod <- glm(cbind(n_dead, n_alive) ~ date * subregion * species, family = "binomial", data = df)
+res <- emmeans(mod, specs = c("date", "subregion", "species"), type = "response",
+               at = list(date = seq(as.Date("2023-03-14"), as.Date("2024-06-01"), 
+                                    by = "day")))
+# Filter fitted values to just the range of observed data
+date_ranges <- df %>%
+  group_by(species, subregion) %>%
+  summarize(start = min(date), end = max(date))
+
+res.f <- as.tibble(res) %>%
+  group_by(species, subregion) %>%
+  nest() %>%
+  left_join(date_ranges) %>%
+  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date > start, date < end))) %>%
+  dplyr::select(subregion, species, data.f) %>%
+  unnest(data.f)
+
+# Plot fitted lines over raw data
+mort +
+  geom_line(data = res.f, aes(y = prob))
+```
+
+
+```{r}
+
+# Percent mortality w/ maxDHW
+ggplot(df, aes(x = cummaxdhw, y = pct_mort, color = subregion)) +
+  geom_point(aes(size = n_total, shape = coral_type), alpha = 0.4) +
+  scale_size(range = c(2,8)) +
+  theme_classic() +
+  facet_grid(subregion~species)
+```
+
