@@ -183,10 +183,45 @@ dw <- dw0 %>%
          n_alive, n_dead, n_geno)
 ```
 
+# Shedd DRTO ACER data
+```{r}
+# June outplants
+jun <- expand_grid(date = as.Date("2023-06-30"),
+                   site = c("Pulaski Shoal", "Texas Rock", "Southwest Channel"),
+                   n_dead = 0,
+                   n_alive = 180,
+                   coral_type = "Outplant",
+                   data_provider = "shedd",
+                   species = "ACER")
+
+dtac <- read_csv("fouling_metadata.csv")
+
+dtac <- dtac %>%
+  filter(!is.na(Ranking)) %>%
+  group_by(Site, Lat, Lon) %>%
+  summarize(n_dead = sum(Ranking > 1),
+            n_alive = sum(Ranking == 1)) %>%
+  mutate(date = as.Date("2023-09-09"),
+         data_provider = "shedd",
+         species = "ACER",
+         coral_type = "Outplant",
+         n_geno = NA) %>%
+  ungroup() %>%
+  dplyr::select(data_provider, site = Site, lat = Lat, lon = Lon,
+                date, species, coral_type, n_alive, n_dead, n_geno)
+  
+dtac <- dtac %>%
+  bind_rows(jun) %>%
+  group_by(site) %>%
+  mutate(lat = ifelse(is.na(lat), first(na.omit(lat)), lat),
+         lon = ifelse(is.na(lon), first(na.omit(lon)), lon)) %>%
+  ungroup()
+```
+
 # Combine all data, assign subregions
 ```{r}
 df <- bind_rows(
-  crf, dw, fwc, mml, nsu, um, usgs
+  crf, dw, fwc, mml, nsu, um, usgs, dtac
 ) %>%
   mutate(n_total = n_dead + n_alive,
          pct_mort = n_dead / n_total)
@@ -385,7 +420,7 @@ mort <- ggplot(df, aes(x = date, y = pct_mort, color = subregion)) +
   facet_grid(subregion~species)
 
 # Fit model
-mod <- glm(cbind(n_dead, n_alive) ~ date * subregion * species, family = "binomial", data = df)
+mod <- glm(cbind(n_dead, n_alive) ~ subregion * date * species, family = "binomial", data = df)
 res <- emmeans(mod, specs = c("date", "subregion", "species"), type = "response",
                at = list(date = seq(as.Date("2023-03-14"), as.Date("2024-06-01"), 
                                     by = "day")))
