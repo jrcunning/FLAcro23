@@ -161,8 +161,8 @@ usgs <- usgs0 %>%
 ## DW data
 
 ```{r}
-dw0 <- read_xlsx("FL_APAL_Summary Data_DEW.xlsx", sheet = "DANA W", 
-                  n_max = 12,
+dw0 <- read_xlsx("FL_APAL_Summary Data_DEW2.xlsx", sheet = "DANA W", 
+                  n_max = 95,
                   na = c("N/A", "n/a")) %>%
   filter(Site != "REGION SUMMARY")
 
@@ -181,6 +181,17 @@ dw <- dw0 %>%
   ) %>%
   dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
          n_alive, n_dead, n_geno)
+
+# Dana counted fission/partial mortality resulting in separate ramets, so number of survivors is sometimes higher than original total number of colonies. In these cases, set number of survivors to equal the number of original colonies.
+dw <- dw %>%
+  mutate(n_dead = pmax(0, n_dead))
+
+dw <- dw %>%
+  group_by(site, date, species, coral_type) %>%
+  summarize(n_alive = sum(n_alive),
+            n_dead = sum(n_dead),
+            lat = mean(lat),
+            lon = mean(lon))
 ```
 
 # Shedd DRTO ACER data
@@ -225,6 +236,17 @@ df <- bind_rows(
 ) %>%
   mutate(n_total = n_dead + n_alive,
          pct_mort = n_dead / n_total)
+
+# Combine all data by site/date
+df <- df %>%
+  group_by(data_provider, site, date, species, coral_type) %>%
+  summarize(n_alive = sum(n_alive),
+            n_dead = sum(n_dead),
+            n_total = n_dead + n_alive,
+            pct_mort = n_dead / n_total,
+            lat = mean(lat),
+            lon = mean(lon)) %>%
+  ungroup()
 
 # Assign Subregions based on DRM subregions
 load("~/Projects/DRM2024/output/2023.RData")
@@ -297,7 +319,7 @@ library(FastKNN)
 
 # matrix of neighbours
 n <- nrow(sites)
-k <- 25 # Number of nearest neighbors to find
+k <- 35 # Number of nearest neighbors to find
 dm <- dist(sites[,3:4])
 nn <- matrix(0,n,k) # n x k nearest neighbors matrix
 for (i in 1:n) {
@@ -424,6 +446,7 @@ mort <- ggplot(df, aes(x = date, y = pct_mort, color = subregion)) +
 # Combine Middle Keys (only ~2 timepoints) with Lower Keys
 df <- df %>%
   mutate(subregion = case_when(subregion %in% c("Middle Keys", "Lower Keys") ~ "Mid-Lower Keys",
+                               subregion == "Mid-Upper Keys Transition" ~ "Upper Keys",
                                TRUE ~ subregion)) %>%
   mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys",
                                                   "Mid-Lower Keys", "Tortugas--Dry Tortugas NP")))
