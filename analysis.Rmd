@@ -572,11 +572,14 @@ mort +
 
 ```{r}
 
-# # Percent mortality w/ maxDHW
-# ggplot(df, aes(x = cummaxdhw, y = pct_mort, color = subregion)) +
-#   geom_point(aes(size = n_total, shape = coral_type), alpha = 0.4) +
-#   scale_size(range = c(2,8)) +
-#   theme_classic() +
-#   facet_grid(subregion~species)
+mod <- glm(cbind(n_dead, n_alive) ~ cummaxdhw * species, family = "binomial", data = df)
+res <- emmeans(mod, specs = "cummaxdhw", by = "species", type = "response", at = list(cummaxdhw = seq(0, 22, 0.1)))
+
+# Percent mortality w/ maxDHW
+ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
+  geom_point(aes(size = n_total, shape = species, color = subregion), alpha = 0.4) +
+  #scale_size(range = c(1,8)) +
+  theme_classic() +
+  geom_line(data = as_tibble(res), aes(y = prob, lty = species))
 ```
 
