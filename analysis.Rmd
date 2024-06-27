@@ -265,7 +265,8 @@ df <- df %>%
   mutate(site_count = n_distinct(paste(lat, lon))) %>%
   group_by(site, lat, lon) %>%
   mutate(site = ifelse(site_count == 1, site, paste0(site, "_", cur_group_id()))) %>%
-=======
+  ungroup()
+
 # Combine all data by site/date
 df <- df %>%
   group_by(data_provider, site, date, species, coral_type) %>%
@@ -275,7 +276,6 @@ df <- df %>%
             pct_mort = n_dead / n_total,
             lat = mean(lat),
             lon = mean(lon)) %>%
->>>>>>> dd1c8e07a122c4cf40d0f54d24c8920d7473d0cf
   ungroup()
 
 # Assign Subregions based on DRM subregions
