@@ -161,8 +161,8 @@ usgs <- usgs0 %>%
 ## DW data
 
 ```{r}
-dw0 <- read_xlsx("FL_APAL_Summary Data_DEW.xlsx", sheet = "DANA W", 
-                  n_max = 12,
+dw0 <- read_xlsx("FL_APAL_Summary Data_DEW2.xlsx", sheet = "DANA W", 
+                  n_max = 95,
                   na = c("N/A", "n/a")) %>%
   filter(Site != "REGION SUMMARY")
 
@@ -181,6 +181,52 @@ dw <- dw0 %>%
   ) %>%
   dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
          n_alive, n_dead, n_geno)
+
+# Dana counted fission/partial mortality resulting in separate ramets, so number of survivors is sometimes higher than original total number of colonies. In these cases, set number of survivors to equal the number of original colonies.
+dw <- dw %>%
+  mutate(n_dead = pmax(0, n_dead))
+
+dw <- dw %>%
+  group_by(site, date, species, coral_type) %>%
+  summarize(n_alive = sum(n_alive),
+            n_dead = sum(n_dead),
+            lat = mean(lat),
+            lon = mean(lon))
+```
+
+# Shedd DRTO ACER data
+```{r}
+# June outplants
+jun <- expand_grid(date = as.Date("2023-06-30"),
+                   site = c("Pulaski Shoal", "Texas Rock", "Southwest Channel"),
+                   n_dead = 0,
+                   n_alive = 180,
+                   coral_type = "Outplant",
+                   data_provider = "shedd",
+                   species = "ACER")
+
+dtac <- read_csv("fouling_metadata.csv")
+
+dtac <- dtac %>%
+  filter(!is.na(Ranking)) %>%
+  group_by(Site, Lat, Lon) %>%
+  summarize(n_dead = sum(Ranking > 1),
+            n_alive = sum(Ranking == 1)) %>%
+  mutate(date = as.Date("2023-09-09"),
+         data_provider = "shedd",
+         species = "ACER",
+         coral_type = "Outplant",
+         n_geno = NA) %>%
+  ungroup() %>%
+  dplyr::select(data_provider, site = Site, lat = Lat, lon = Lon,
+                date, species, coral_type, n_alive, n_dead, n_geno)
+  
+dtac <- dtac %>%
+  bind_rows(jun) %>%
+  group_by(site) %>%
+  mutate(lat = ifelse(is.na(lat), first(na.omit(lat)), lat),
+         lon = ifelse(is.na(lon), first(na.omit(lon)), lon)) %>%
+  ungroup()
 ```
 
 # MIR data
@@ -207,7 +253,7 @@ mir <- mir0 %>%
 # Combine all data, assign subregions
 ```{r}
 df <- bind_rows(
-  crf, dw, fwc, mml, nsu, um, usgs, mir
+  crf, dw, fwc, mml, nsu, um, usgs, dtac, mir
 ) %>%
   mutate(n_total = n_dead + n_alive,
          pct_mort = n_dead / n_total)
@@ -219,6 +265,17 @@ df <- df %>%
   mutate(site_count = n_distinct(paste(lat, lon))) %>%
   group_by(site, lat, lon) %>%
   mutate(site = ifelse(site_count == 1, site, paste0(site, "_", cur_group_id()))) %>%
+=======
+# Combine all data by site/date
+df <- df %>%
+  group_by(data_provider, site, date, species, coral_type) %>%
+  summarize(n_alive = sum(n_alive),
+            n_dead = sum(n_dead),
+            n_total = n_dead + n_alive,
+            pct_mort = n_dead / n_total,
+            lat = mean(lat),
+            lon = mean(lon)) %>%
+>>>>>>> dd1c8e07a122c4cf40d0f54d24c8920d7473d0cf
   ungroup()
 
 # Assign Subregions based on DRM subregions
@@ -292,7 +349,7 @@ library(FastKNN)
 
 # matrix of neighbours
 n <- nrow(sites)
-k <- 25 # Number of nearest neighbors to find
+k <- 35 # Number of nearest neighbors to find
 dm <- dist(sites[,3:4])
 nn <- matrix(0,n,k) # n x k nearest neighbors matrix
 for (i in 1:n) {
@@ -396,26 +453,40 @@ ggplot(df, aes(x = date, fill = subregion)) +
   theme_classic() +
   labs(y = "Number of sites surveyed")
 
-# Surveys by max DHW experienced anytime prior to survey
-ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
-  geom_histogram() +
-  theme_classic() +
-  labs(y = "Number of sites surveyed")
+# # Surveys by max DHW experienced anytime prior to survey
+# ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
+#   geom_histogram() +
+#   theme_classic() +
+#   labs(y = "Number of sites surveyed")
 ```
 
 # Mortality over time by subregion
 
-```{r}
+```{r, fig.width = 8, fig.height = 9}
 # Plot Percent mortality over time
 mort <- ggplot(df, aes(x = date, y = pct_mort, color = subregion)) +
   geom_point(aes(size = n_total, shape = coral_type), alpha = 0.4) +
   scale_size(range = c(2,8)) +
   scale_x_date(date_breaks = "months", date_labels = "%b") +
+  facet_grid(subregion~species) +
   theme_classic() +
-  facet_grid(subregion~species)
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = "Date", y = "Percent mortality")
 
-# Fit model
-mod <- glm(cbind(n_dead, n_alive) ~ date * subregion * species, family = "binomial", data = df)
+# Combine Middle Keys (only ~2 timepoints) with Lower Keys
+df <- df %>%
+  mutate(subregion = case_when(subregion %in% c("Middle Keys", "Lower Keys") ~ "Mid-Lower Keys",
+                               subregion == "Mid-Upper Keys Transition" ~ "Upper Keys",
+                               TRUE ~ subregion)) %>%
+  mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys",
+                                                  "Mid-Lower Keys", "Tortugas--Dry Tortugas NP")))
+
+mort <- mort %+% df
+```
+
+```{r, fig.width = 8, fig.height = 9}
+# Fit binomial model
+mod <- glm(cbind(n_dead, n_alive) ~ subregion * date * species, family = "binomial", data = df)
 res <- emmeans(mod, specs = c("date", "subregion", "species"), type = "response",
                at = list(date = seq(as.Date("2023-03-14"), as.Date("2024-06-01"), 
                                     by = "day")))
@@ -423,28 +494,89 @@ res <- emmeans(mod, specs = c("date", "subregion", "species"), type = "response"
 date_ranges <- df %>%
   group_by(species, subregion) %>%
   summarize(start = min(date), end = max(date))
-
 res.f <- as.tibble(res) %>%
   group_by(species, subregion) %>%
   nest() %>%
   left_join(date_ranges) %>%
-  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date > start, date < end))) %>%
+  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date > start))) %>%#, date < end))) %>%
   dplyr::select(subregion, species, data.f) %>%
   unnest(data.f)
 
+# Fit GAM model
+df <- df %>% mutate(day = as.numeric(date - as.Date("2023-01-01")))
+modgam <- mgcv::gam(cbind(n_dead, n_alive) ~ subregion * species + s(day, by = interaction(subregion, species), k = 0), 
+                    data = df, family = binomial("logit"), method = "REML")
+
+resgam <- emmeans(modgam, specs = c("day", "subregion", "species"), type = "response", rg.limit = 70000,
+                  at = list(day = as.numeric(seq(as.Date("2023-03-14"), as.Date("2024-06-01"), 
+                                                 by = "day") - as.Date("2023-01-01"))))
+resgam.f <- as.tibble(resgam) %>% 
+  mutate(date = as.Date("2023-01-01") + day) %>%
+  group_by(species, subregion) %>%
+  nest() %>%
+  left_join(date_ranges) %>%
+  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date > start))) %>% #, date < end))) %>%
+  dplyr::select(subregion, species, data.f) %>%
+  unnest(data.f)
+
+
+
+# # Plot fitted lines over raw data
+# mort +
+#   #geom_line(data = as.tibble(resgam.f), aes(y = prob), lty = 2) +
+#   geom_line(data = res.f, aes(y = prob))
+```
+
+
+```{r, fig.width = 8, fig.height = 9}
+# Get Latest observed pct mortality
+latest_obs_mort <- df %>%
+  group_by(subregion, species) %>%
+  filter(date == max(date)) %>%
+  summarize(latest_obs_date = max(date),
+            n_alive = sum(n_alive),
+            n_dead = sum(n_dead),
+            latest_obs_pct_mort = n_dead / (n_dead + n_alive))
+
+# Fitted Percent mortality on October 1, and April 1st from GLM
+glm_fitted_mort <- res.f %>%
+  ungroup() %>%
+  filter(date %in% c("2023-10-01", "2024-04-01")) %>%
+  dplyr::select(subregion, species, date, prob)# %>%
+  # pivot_wider(names_from = date, values_from = prob, names_prefix = "glm_pct_mort_") %>%
+  # arrange(subregion, species)
+
+# Fitted Percent mortality on October 1, and April 1st from GAM
+gam_fitted_mort <- resgam.f %>%
+  ungroup() %>%
+  filter(date %in% c("2023-10-01", "2024-04-01")) %>%
+  dplyr::select(subregion, species, date, prob) #%>%
+  # pivot_wider(names_from = date, values_from = prob, names_prefix = "gam_pct_mort_") %>%
+  # arrange(subregion, species)
+
+# out <- full_join(glm_fitted_mort, gam_fitted_mort, by = c("subregion", "species")) %>%
+#   full_join(latest_obs_mort, by = c("subregion", "species"))
+
+
+
 # Plot fitted lines over raw data
 mort +
-  geom_line(data = res.f, aes(y = prob))
+  #geom_line(data = as.tibble(resgam.f), aes(y = prob), lty = 2) +
+  geom_line(data = res.f, aes(y = prob)) +
+  geom_vline(xintercept = c(as.Date("2023-10-01"), as.Date("2024-04-01")), lwd = 0.25, color = "gray70") +
+  geom_text(data = glm_fitted_mort, aes(y = prob - 0.1, label = scales::label_percent()(round(prob, 2)))) +
+  geom_text(data = latest_obs_mort, fontface = "italic", aes(x = latest_obs_date, y = latest_obs_pct_mort - 0.1, 
+                                        label = scales::label_percent()(round(latest_obs_pct_mort, 2))))
 ```
 
 
 ```{r}
 
-# Percent mortality w/ maxDHW
-ggplot(df, aes(x = cummaxdhw, y = pct_mort, color = subregion)) +
-  geom_point(aes(size = n_total, shape = coral_type), alpha = 0.4) +
-  scale_size(range = c(2,8)) +
-  theme_classic() +
-  facet_grid(subregion~species)
+# # Percent mortality w/ maxDHW
+# ggplot(df, aes(x = cummaxdhw, y = pct_mort, color = subregion)) +
+#   geom_point(aes(size = n_total, shape = coral_type), alpha = 0.4) +
+#   scale_size(range = c(2,8)) +
+#   theme_classic() +
+#   facet_grid(subregion~species)
 ```
 
