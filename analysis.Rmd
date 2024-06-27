@@ -183,13 +183,43 @@ dw <- dw0 %>%
          n_alive, n_dead, n_geno)
 ```
 
+# MIR data
+```{r}
+mir0 <- read_xlsx("MIR_Acropora data.xlsx")
+
+mir <- mir0 %>%
+  mutate(
+    data_provider = "mir",
+    site = Site,
+    lat = Latitude,
+    lon = Longitude,
+    date = as_date(Date),
+    species = `Spp (APAL/ACER)`,
+    coral_type = `Wild/Outplant`,
+    n_alive = `N (surviving colonies)`,
+    n_dead = `N (colonies)` - `N (surviving colonies)`,
+    n_geno = `N (Genotypes, if known)`
+  ) %>%
+  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
+         n_alive, n_dead, n_geno)
+```
+
 # Combine all data, assign subregions
 ```{r}
 df <- bind_rows(
-  crf, dw, fwc, mml, nsu, um, usgs
+  crf, dw, fwc, mml, nsu, um, usgs, mir
 ) %>%
   mutate(n_total = n_dead + n_alive,
          pct_mort = n_dead / n_total)
+
+# Ensure unique site names (some diff. groups used same site name (e.g., "100") for diff. sites)
+# Generate distinct site names
+df <- df %>%
+  group_by(site) %>%
+  mutate(site_count = n_distinct(paste(lat, lon))) %>%
+  group_by(site, lat, lon) %>%
+  mutate(site = ifelse(site_count == 1, site, paste0(site, "_", cur_group_id()))) %>%
+  ungroup()
 
 # Assign Subregions based on DRM subregions
 load("~/Projects/DRM2024/output/2023.RData")
