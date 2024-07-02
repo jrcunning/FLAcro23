@@ -250,7 +250,7 @@ mir <- mir0 %>%
          n_alive, n_dead, n_geno)
 ```
 
-# Combine all data, assign subregions
+# Combine all data, cluster sites, assign subregions
 ```{r}
 df <- bind_rows(
   crf, dw, fwc, mml, nsu, um, usgs, dtac, mir
@@ -267,15 +267,26 @@ df <- df %>%
   mutate(site = ifelse(site_count == 1, site, paste0(site, "_", cur_group_id()))) %>%
   ungroup()
 
-# Combine all data by site/date
+# Cluster sites that are close together
+dist_mat <- distm(df[, c("lon", "lat")], fun = distHaversine)
+hc <- hclust(as.dist(dist_mat), method = "complete")
+clusters <- cutree(hc, h = 1000)  # Cluster based on 1000m threshold
+df$siteclust <- as.character(clusters)
+
+ggplot(df, aes(x = lon, y = lat, color = as.factor(siteclust))) +
+  geom_point()
+
+
+# Combine all data by site cluster/date
 df <- df %>%
-  group_by(data_provider, site, date, species, coral_type) %>%
+  group_by(siteclust) %>%
+  mutate(lat = mean(lat),
+         lon = mean(lon)) %>%
+  group_by(siteclust, date, species, coral_type, lat, lon) %>%
   summarize(n_alive = sum(n_alive),
             n_dead = sum(n_dead),
             n_total = n_dead + n_alive,
-            pct_mort = n_dead / n_total,
-            lat = mean(lat),
-            lon = mean(lon)) %>%
+            pct_mort = n_dead / n_total) %>%
   ungroup()
 
 # Assign Subregions based on DRM subregions
@@ -300,6 +311,9 @@ df <- df %>%
   droplevels()
 ```
 
+
+
+
 # Import DHW data
 ```{r}
 # Import all NetCDF files for each date from June 1 through December 31, 2023
@@ -318,7 +332,7 @@ nc.files <- list.files("~/Projects/DRM2024/data/dhw/2023", pattern = "*.nc$", fu
 # Get DRM survey site coordinates
 # Import data
 sites <- df %>%
-  distinct(site, subregion, lon, lat) %>%
+  distinct(siteclust, subregion, lon, lat) %>%
   mutate(subregion = factor(subregion, levels = rev(levels(subregion))))
 
 # Open all DHW NCDF4 files
@@ -338,11 +352,11 @@ out <- nc.data %>% dplyr::select(date, coords, dhw) %>% unnest() %>%
 
 # Check that all sites got DHW values
 dhws <- out %>%
-  group_by(site) %>%
+  group_by(siteclust) %>%
   dplyr::summarize(avgdhw = mean(dhw))
 nodhw <- dhws %>% filter(is.na(avgdhw))
 #nodhw
-## 20 sites did not get DHW -- outside of 5km pixels (too close to land)
+## 8 siteclusts did not get DHW -- outside of 5km pixels (too close to land)
 
 # Assign missing dhws value of closest site that has a dhw value
 library(FastKNN)
@@ -355,21 +369,21 @@ nn <- matrix(0,n,k) # n x k nearest neighbors matrix
 for (i in 1:n) {
    nn[i,] = k.nearest.neighbors(i, as.matrix(dm), k = k)
 }
-nn[] <- as.character(sites$site)[c(nn)]
+nn[] <- as.character(sites$siteclust)[c(nn)]
 
 # Get names of all sites and their nearest neighbors
-neighbors <- as_tibble(cbind(site = as.character(sites$site), nn))
+neighbors <- as_tibble(cbind(siteclust = as.character(sites$siteclust), nn))
 # Get dhws of all sites and dhws of their nearest neighbors
 neighborsdhw <- neighbors %>%
   pivot_longer(-1, names_to = "nno", values_to = "nname") %>%
   mutate(nno = parse_number(nno) - 1) %>%
-  mutate(navgdhw = dhws$avgdhw[match(nname, dhws$site)])
+  mutate(navgdhw = dhws$avgdhw[match(nname, dhws$siteclust)])
 
 finddhw <- neighborsdhw %>%
-  filter(site %in% nodhw$site)
+  filter(siteclust %in% nodhw$siteclust)
 
 dhwmatch <- finddhw %>% 
-  group_by(site) %>%
+  group_by(siteclust) %>%
   filter(!is.na(navgdhw)) %>%
   dplyr::summarize(closest_n_with_dhw = nname[nno == min(nno)]) %>%
   right_join(nodhw) %>%
@@ -380,8 +394,8 @@ dhwmatch <- finddhw %>%
 matches <- left_join(dhwmatch, sites)
 #range(matches$Longitude)
 #range(matches$Latitude)
-matches2 <- left_join(dplyr::select(matches, site = closest_n_with_dhw), sites) %>%
-  distinct(site, lon, lat)
+matches2 <- left_join(dplyr::select(matches, siteclust = closest_n_with_dhw), sites) %>%
+  distinct(siteclust, lon, lat)
 # 
 # # Plot matches
 # library(ggrepel)
@@ -400,7 +414,7 @@ fixing <- out %>%
 
 fixed <- fixing
 ### dhw data for sites where missing gets replaced with dhw data for the site of its closest neighbor site with dhw data
-fixed[match(matches$site, fixing$site), "data"] <- fixing[match(matches$closest_n_with_dhw, fixing$site), "data"]
+fixed[match(matches$siteclust, fixing$siteclust), "data"] <- fixing[match(matches$closest_n_with_dhw, fixing$siteclust), "data"]
 
 # ### test if it worked (dhw was missing for site 100, should have been replaced with dhw data from KC)
 # fixing %>% filter(site == "100") %>% pull(data)
@@ -414,27 +428,33 @@ fixed[match(matches$site, fixing$site), "data"] <- fixing[match(matches$closest_
 # Unnest fixed output
 outfixed <- fixed %>% unnest()
 #outfixed %>% filter(is.na(dhw))
-dhws <- outfixed %>% dplyr::select(site, lon, lat, date, dhw)
+dhws <- outfixed %>% dplyr::select(siteclust, lon, lat, date, dhw)
 
 # We only downloaded DHW from June through December 2024, but we have Acro survey data from before and after that interval. Those surveys would have DHW values of zero, so add those in...
 df1 <- expand_grid(
   date = seq(as.Date("2023-03-14"), as.Date("2024-05-10"), by = "days"),
-  dhws %>% distinct(site, lat, lon)
+  dhws %>% distinct(siteclust, lat, lon)
 )
 dhws <- full_join(dhws, df1) %>%
-  arrange(site, lon, lat, date) %>%
+  arrange(siteclust, lon, lat, date) %>%
   replace_na(list(dhw = 0))
 
 
 # Get max. DHW value for on OR BEFORE date surveyed
 dhws <- dhws %>%
-  group_by(site) %>%
+  group_by(siteclust) %>%
   mutate(cummaxdhw = cummax(dhw))
 
 
 # For each survey, join DHW on date of survey, and max DHW experienced on or BEFORE survey
-df <- left_join(df, dhws, by = c("site", "lon", "lat", "date")) %>%
+df <- left_join(df, dhws, by = c("siteclust", "lon", "lat", "date")) %>%
   mutate(subregion = factor(subregion, levels = levels(sites$subregion)))
+```
+
+# add n_total_cat
+```{r}
+df <- df %>%
+  mutate(n_total_cat = cut(n_total, breaks = c(0, 10, 100, 500, 1000)))
 ```
 
 # Surveys over space and time
@@ -465,21 +485,19 @@ ggplot(df, aes(x = date, fill = subregion)) +
 ```{r, fig.width = 8, fig.height = 9}
 # Plot Percent mortality over time
 mort <- ggplot(df, aes(x = date, y = pct_mort, color = subregion)) +
-  geom_point(aes(size = n_total, shape = coral_type), alpha = 0.4) +
-  scale_size(range = c(2,8)) +
+  geom_point(aes(size = n_total_cat, shape = coral_type), alpha = 0.4) +
   scale_x_date(date_breaks = "months", date_labels = "%b") +
   facet_grid(subregion~species) +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
   labs(x = "Date", y = "Percent mortality")
 
-# Combine Middle Keys (only ~2 timepoints) with Lower Keys
+# Combine Mid-Upper Keys Transition with Middle Keys (only ~2 timepoints) with Lower Keys
 df <- df %>%
-  mutate(subregion = case_when(subregion %in% c("Middle Keys", "Lower Keys") ~ "Mid-Lower Keys",
-                               subregion == "Mid-Upper Keys Transition" ~ "Upper Keys",
+  mutate(subregion = case_when(subregion == "Mid-Upper Keys Transition" ~ "Middle Keys",
                                TRUE ~ subregion)) %>%
   mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys",
-                                                  "Mid-Lower Keys", "Tortugas--Dry Tortugas NP")))
+                                                  "Middle Keys", "Lower Keys", "Tortugas--Dry Tortugas NP")))
 
 mort <- mort %+% df
 ```
