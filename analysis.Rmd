@@ -270,7 +270,7 @@ df <- df %>%
 # Cluster sites that are close together
 dist_mat <- distm(df[, c("lon", "lat")], fun = distHaversine)
 hc <- hclust(as.dist(dist_mat), method = "complete")
-clusters <- cutree(hc, h = 1000)  # Cluster based on 1000m threshold
+clusters <- cutree(hc, h = 2000)  # Cluster based on 1000m threshold
 df$siteclust <- as.character(clusters)
 
 ggplot(df, aes(x = lon, y = lat, color = as.factor(siteclust))) +
