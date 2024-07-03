@@ -250,17 +250,20 @@ mir <- mir0 %>%
          n_alive, n_dead, n_geno)
 ```
 
-# Combine all data, cluster sites, assign subregions
+# Combine all data, 
 ```{r}
-df <- bind_rows(
+df0 <- bind_rows(
   crf, dw, fwc, mml, nsu, um, usgs, dtac, mir
 ) %>%
   mutate(n_total = n_dead + n_alive,
          pct_mort = n_dead / n_total)
+```
 
+# cluster sites, assign subregions
+```{r}
 # Ensure unique site names (some diff. groups used same site name (e.g., "100") for diff. sites)
 # Generate distinct site names
-df <- df %>%
+df <- df0 %>%
   group_by(site) %>%
   mutate(site_count = n_distinct(paste(lat, lon))) %>%
   group_by(site, lat, lon) %>%
@@ -270,11 +273,11 @@ df <- df %>%
 # Cluster sites that are close together
 dist_mat <- distm(df[, c("lon", "lat")], fun = distHaversine)
 hc <- hclust(as.dist(dist_mat), method = "complete")
-clusters <- cutree(hc, h = 2000)  # Cluster based on 1000m threshold
+clusters <- cutree(hc, h = 2000)  # Cluster based on 2000m threshold
 df$siteclust <- as.character(clusters)
 
-ggplot(df, aes(x = lon, y = lat, color = as.factor(siteclust))) +
-  geom_point()
+# ggplot(df, aes(x = lon, y = lat, color = as.factor(siteclust))) +
+#   geom_point()
 
 
 # Combine all data by site cluster/date
@@ -454,24 +457,27 @@ df <- left_join(df, dhws, by = c("siteclust", "lon", "lat", "date")) %>%
 # add n_total_cat
 ```{r}
 df <- df %>%
-  mutate(n_total_cat = cut(n_total, breaks = c(0, 10, 100, 500, 1000)))
+  mutate(n_total_cat = cut(n_total, breaks = c(0, 10, 100, 1000, 7000), right = FALSE))
+
+df %>%
+  count(n_total_cat)
 ```
 
 # Surveys over space and time
 
 ```{r}
-# Map sites
-ggplot(df, aes(x = lon, y = lat, color = subregion)) +
-  geom_point(aes(size = n_total), alpha = 0.3) +
-  scale_size(range = c(1, 10)) +
-  theme_classic()
-
-# Surveys over time
-ggplot(df, aes(x = date, fill = subregion)) +
-  geom_histogram() +
-  scale_x_date(date_breaks = "months", date_labels = "%b") +
-  theme_classic() +
-  labs(y = "Number of sites surveyed")
+# # Map sites
+# ggplot(df, aes(x = lon, y = lat, color = subregion)) +
+#   geom_point(aes(size = n_total), alpha = 0.3) +
+#   scale_size(range = c(1, 10)) +
+#   theme_classic()
+# 
+# # Surveys over time
+# ggplot(df, aes(x = date, fill = subregion)) +
+#   geom_histogram() +
+#   scale_x_date(date_breaks = "months", date_labels = "%b") +
+#   theme_classic() +
+#   labs(y = "Number of sites surveyed")
 
 # # Surveys by max DHW experienced anytime prior to survey
 # ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
@@ -484,22 +490,23 @@ ggplot(df, aes(x = date, fill = subregion)) +
 
 ```{r, fig.width = 8, fig.height = 9}
 # Plot Percent mortality over time
-mort <- ggplot(df, aes(x = date, y = pct_mort, color = subregion)) +
+(mort <- ggplot(df, aes(x = date, y = pct_mort, color = subregion)) +
   geom_point(aes(size = n_total_cat, shape = coral_type), alpha = 0.4) +
   scale_x_date(date_breaks = "months", date_labels = "%b") +
+  scale_size_discrete(range = c(1,4)) +
   facet_grid(subregion~species) +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
-  labs(x = "Date", y = "Percent mortality")
+  labs(x = "Date", y = "Percent mortality"))
 
-# Combine Mid-Upper Keys Transition with Middle Keys (only ~2 timepoints) with Lower Keys
+# Combine Mid-Upper Keys Transition with Middle Keys (only ~2 timepoints)
 df <- df %>%
   mutate(subregion = case_when(subregion == "Mid-Upper Keys Transition" ~ "Middle Keys",
                                TRUE ~ subregion)) %>%
   mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys",
                                                   "Middle Keys", "Lower Keys", "Tortugas--Dry Tortugas NP")))
 
-mort <- mort %+% df
+(mort <- mort %+% df)
 ```
 
 ```{r, fig.width = 8, fig.height = 9}
@@ -585,6 +592,62 @@ mort +
   geom_text(data = glm_fitted_mort, aes(y = prob - 0.1, label = scales::label_percent()(round(prob, 2)))) +
   geom_text(data = latest_obs_mort, fontface = "italic", aes(x = latest_obs_date, y = latest_obs_pct_mort - 0.1, 
                                         label = scales::label_percent()(round(latest_obs_pct_mort, 2))))
+```
+
+
+# Any difference between cervicornis and palmata?
+```{r}
+emm <- emmeans(mod, specs = "species", by = c("date", "subregion"), type = "response",
+               at = list(date = as.Date("2023-10-01")))
+contrast(emm, "pairwise")
+
+# Sig. diffs in Upper, Middle, and Lower Keys, but small diffs
+# Acer vs. Apal
+# Upper Keys  75% vs. 79%
+# Middle Keys 100% vs. 96%
+# Lower Keys 95% vs. 98%
+
+emm <- emmeans(mod, specs = "species", by = c("date", "subregion"), type = "response",
+               at = list(date = as.Date("2024-04-01")))
+contrast(emm, "pairwise")
+
+# reduced model without species -- compare to full model with LRT for significance of species
+mod2 <- glm(cbind(n_dead, n_alive) ~ subregion * date, family = "binomial", data = df)
+anova(mod, mod2, test = "Chisq")
+# species is significant.... effect sizes aren't that big though.
+```
+
+# even though species is significant, model all acropora together
+```{r}
+res2 <- emmeans(mod2, specs = c("date", "subregion"), type = "response",
+                at = list(date = seq(as.Date("2023-03-14"), as.Date("2024-06-01"), 
+                                    by = "day")))
+# Filter fitted values to just the range of observed data
+date_ranges <- df %>%
+  group_by(subregion) %>%
+  summarize(start = min(date), end = max(date))
+res2.f <- as.tibble(res2) %>%
+  group_by(subregion) %>%
+  nest() %>%
+  left_join(date_ranges) %>%
+  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date > start))) %>% #, date < end))) %>%
+  dplyr::select(subregion, data.f) %>%
+  unnest(data.f)
+
+as.tibble(res2.f) %>%
+  ggplot(aes(x = date, y = prob, color = subregion)) +
+  geom_line() +
+  scale_x_date(date_breaks = "months", date_labels = "%b") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = "Date", y = "Percent mortality")
+
+# Pull out Oct1 and Apr1 mortality for each region
+as.tibble(res2.f) %>%
+  filter(date %in% c("2023-10-01", "2024-04-01")) %>%
+  ggplot(aes(x = factor(date), y = prob)) +
+  geom_col() +
+  facet_wrap(~subregion, ncol = 1)
 ```
 
 
