@@ -484,6 +484,9 @@ df %>%
 #   geom_histogram() +
 #   theme_classic() +
 #   labs(y = "Number of sites surveyed")
+
+# Filter to just June onward...
+df <- df %>% filter(date > "2023-06-01")
 ```
 
 # Mortality over time by subregion
@@ -509,124 +512,140 @@ df <- df %>%
 (mort <- mort %+% df)
 ```
 
+# Fit models
+
 ```{r, fig.width = 8, fig.height = 9}
-# Fit binomial model
-mod <- glm(cbind(n_dead, n_alive) ~ subregion * date * species, family = "binomial", data = df)
-res <- emmeans(mod, specs = c("date", "subregion", "species"), type = "response",
-               at = list(date = seq(as.Date("2023-03-14"), as.Date("2024-06-01"), 
-                                    by = "day")))
-# Filter fitted values to just the range of observed data
+# Fit model using glm
+mod.glm <- glm(cbind(n_dead, n_alive) ~ subregion * date * species, 
+               family = "binomial", data = df)
+mod.glm2 <- glm(cbind(n_dead, n_alive) ~ subregion + date + species + subregion:date:species, 
+                family = "binomial", data = df)
+AIC(mod.glm, mod.glm2)
+
+# Fit model using glmer (sites as random factors)
+# Rescale the date predictor
+df$date_scaled <- scale(as.numeric(df$date))
+mod.glmer <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled * species + (1| siteclust/species),
+                   family = binomial,
+                   data = df)
+mod.glmer2 <- glmer(cbind(n_dead, n_alive) ~ subregion + date_scaled + species + 
+                    subregion:date_scaled:species + (1| siteclust/species),
+                    family = binomial,
+                    data = df)
+AIC(mod.glmer, mod.glmer2)
+
+# Get fitted values for glm
+res.glm <- emmeans(mod.glm, specs = c("date", "subregion", "species"), type = "response",
+               at = list(date = seq(min(df$date), max(df$date), by = "days")))
+res.glm <- as.tibble(res.glm)
+
+# Get fitted values for glmer
+res.glmer <- emmeans(mod.glmer, specs = c("date_scaled", "subregion", "species"), type = "response",
+               at = list(date_scaled = seq(-2.168304, 2.380493, 0.015)))
+datesd <- sd(as.numeric(df$date))
+datemean <- mean(as.numeric(df$date))
+res.glmer <- as.tibble(res.glmer) %>% mutate(date = as.Date(date_scaled * datesd + datemean))
+
+# Filter fitted values to just the range of observed data for each species/subregion
 date_ranges <- df %>%
   group_by(species, subregion) %>%
   summarize(start = min(date), end = max(date))
-res.f <- as.tibble(res) %>%
+
+res.glm.f <- as.tibble(res.glm) %>%
   group_by(species, subregion) %>%
   nest() %>%
   left_join(date_ranges) %>%
-  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date > start))) %>%#, date < end))) %>%
+  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date > start, date < end))) %>%
   dplyr::select(subregion, species, data.f) %>%
   unnest(data.f)
 
-# Fit GAM model
-df <- df %>% mutate(day = as.numeric(date - as.Date("2023-01-01")))
-modgam <- mgcv::gam(cbind(n_dead, n_alive) ~ subregion * species + s(day, by = interaction(subregion, species), k = 0), 
-                    data = df, family = binomial("logit"), method = "REML")
-
-resgam <- emmeans(modgam, specs = c("day", "subregion", "species"), type = "response", rg.limit = 70000,
-                  at = list(day = as.numeric(seq(as.Date("2023-03-14"), as.Date("2024-06-01"), 
-                                                 by = "day") - as.Date("2023-01-01"))))
-resgam.f <- as.tibble(resgam) %>% 
-  mutate(date = as.Date("2023-01-01") + day) %>%
+res.glmer.f <- as.tibble(res.glmer) %>%
   group_by(species, subregion) %>%
   nest() %>%
   left_join(date_ranges) %>%
-  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date > start))) %>% #, date < end))) %>%
+  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date > start, date < end))) %>%
   dplyr::select(subregion, species, data.f) %>%
   unnest(data.f)
-
-
-
-# # Plot fitted lines over raw data
-# mort +
-#   #geom_line(data = as.tibble(resgam.f), aes(y = prob), lty = 2) +
-#   geom_line(data = res.f, aes(y = prob))
 ```
 
-
+# Plot
 ```{r, fig.width = 8, fig.height = 9}
-# Get Latest observed pct mortality
-latest_obs_mort <- df %>%
-  group_by(subregion, species) %>%
-  filter(date == max(date)) %>%
-  summarize(latest_obs_date = max(date),
-            n_alive = sum(n_alive),
-            n_dead = sum(n_dead),
-            latest_obs_pct_mort = n_dead / (n_dead + n_alive))
-
 # Fitted Percent mortality on October 1, and April 1st from GLM
-glm_fitted_mort <- res.f %>%
+glm_fitted_mort <- res.glm.f %>%
   ungroup() %>%
-  filter(date %in% c("2023-10-01", "2024-04-01")) %>%
-  dplyr::select(subregion, species, date, prob)# %>%
-  # pivot_wider(names_from = date, values_from = prob, names_prefix = "glm_pct_mort_") %>%
-  # arrange(subregion, species)
+  filter(date %in% c("2023-10-01", "2024-01-01", "2024-04-01")) %>%
+  dplyr::select(subregion, species, date, prob)
 
-# Fitted Percent mortality on October 1, and April 1st from GAM
-gam_fitted_mort <- resgam.f %>%
+glmer_fitted_mort <- res.glmer.f %>%
   ungroup() %>%
-  filter(date %in% c("2023-10-01", "2024-04-01")) %>%
-  dplyr::select(subregion, species, date, prob) #%>%
-  # pivot_wider(names_from = date, values_from = prob, names_prefix = "gam_pct_mort_") %>%
-  # arrange(subregion, species)
-
-# out <- full_join(glm_fitted_mort, gam_fitted_mort, by = c("subregion", "species")) %>%
-#   full_join(latest_obs_mort, by = c("subregion", "species"))
-
-
+  filter(date %in% c("2023-10-01", "2024-01-01", "2024-04-01")) %>%
+  dplyr::select(subregion, species, date, prob)
 
 # Plot fitted lines over raw data
 mort +
-  #geom_line(data = as.tibble(resgam.f), aes(y = prob), lty = 2) +
-  geom_line(data = res.f, aes(y = prob)) +
-  geom_vline(xintercept = c(as.Date("2023-10-01"), as.Date("2024-04-01")), lwd = 0.25, color = "gray70") +
-  geom_text(data = glm_fitted_mort, aes(y = prob - 0.1, label = scales::label_percent()(round(prob, 2)))) +
-  geom_text(data = latest_obs_mort, fontface = "italic", aes(x = latest_obs_date, y = latest_obs_pct_mort - 0.1, 
-                                        label = scales::label_percent()(round(latest_obs_pct_mort, 2))))
+  geom_line(data = res.glm.f, aes(y = prob)) +
+  geom_line(data = res.glmer.f, aes(y = prob), lty = 2) +
+  geom_vline(xintercept = c(as.Date("2023-10-01"), as.Date("2024-01-01"), as.Date("2024-04-01")), lwd = 0.25, color = "gray70") +
+  geom_text(data = glm_fitted_mort, aes(y = prob, label = scales::label_percent()(round(prob, 2)))) +
+  geom_text(data = glmer_fitted_mort, aes(y = prob, label = scales::label_percent()(round(prob, 2))), fontface = "italic")
+
+# ggplot(as.tibble(res), aes(x = date, y = prob)) +
+#   geom_line() +
+#   facet_grid(species ~ subregion)
 ```
 
 
 # Any difference between cervicornis and palmata?
 ```{r}
-emm <- emmeans(mod, specs = "species", by = c("date", "subregion"), type = "response",
+# On October 1st, 2023
+emm1001 <- emmeans(mod.glm, specs = "species", by = c("date", "subregion"), type = "response",
                at = list(date = as.Date("2023-10-01")))
-contrast(emm, "pairwise")
+rbind(contrast(emm1001, "pairwise"))
 
-# Sig. diffs in Upper, Middle, and Lower Keys, but small diffs
-# Acer vs. Apal
-# Upper Keys  75% vs. 79%
-# Middle Keys 100% vs. 96%
-# Lower Keys 95% vs. 98%
-
-emm <- emmeans(mod, specs = "species", by = c("date", "subregion"), type = "response",
+# On April 1st, 2024
+emm0401 <- emmeans(mod, specs = "species", by = c("date", "subregion"), type = "response",
                at = list(date = as.Date("2024-04-01")))
-contrast(emm, "pairwise")
+rbind(contrast(emm0401, "pairwise"))
 
-# reduced model without species -- compare to full model with LRT for significance of species
-mod2 <- glm(cbind(n_dead, n_alive) ~ subregion * date, family = "binomial", data = df)
-anova(mod, mod2, test = "Chisq")
 # species is significant.... effect sizes aren't that big though.
+
+# Overall effect of species
+# reduced model without species -- compare to full model with LRT for significance of species
+mod.glm.nospp <- glm(formula = cbind(n_dead, n_alive) ~ subregion * date, 
+                     family = "binomial", data = df)
+anova(mod.glm, mod.glm.nospp, test = "Chisq")
+BIC(mod.glm, mod.glm.nospp)
+
+mod.glmer.nospp <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled + (1| siteclust/species),
+                         family = binomial,
+                         data = df)
+anova(mod.glmer, mod.glmer.nospp, test = "Chisq")
+BIC(mod.glmer, mod.glmer.nospp)
 ```
 
 # even though species is significant, model all acropora together
 ```{r}
-res2 <- emmeans(mod2, specs = c("date", "subregion"), type = "response",
-                at = list(date = seq(as.Date("2023-03-14"), as.Date("2024-06-01"), 
-                                    by = "day")))
+# Fit model using glm
+mod.all.glm <- glm(cbind(n_dead, n_alive) ~ subregion * date, 
+               family = "binomial", data = df)
+
+# Fit model using glmer (sites as random factors)
+mod.all.glmer <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled + (1|siteclust/species),
+                       family = binomial, data = df)
+
+# Fitted values for glm
+res.all.glm <- emmeans(mod.all.glm, specs = c("date", "subregion"), type = "response",
+                       at = list(date = seq(as.Date("2023-03-14"), as.Date("2024-06-01"), by = "day")))
+
+# Fitted values for glmer
+res.all.glmer <- emmeans(mod.all.glmer, specs = c("date_scaled", "subregion"), type = "response",
+                         at = list(date_scaled = seq(-2.699, 2.167, 0.015)))
+
 # Filter fitted values to just the range of observed data
 date_ranges <- df %>%
   group_by(subregion) %>%
   summarize(start = min(date), end = max(date))
-res2.f <- as.tibble(res2) %>%
+res.all.glm.f <- as.tibble(res.all.glm) %>%
   group_by(subregion) %>%
   nest() %>%
   left_join(date_ranges) %>%
@@ -634,16 +653,36 @@ res2.f <- as.tibble(res2) %>%
   dplyr::select(subregion, data.f) %>%
   unnest(data.f)
 
-as.tibble(res2.f) %>%
+date_ranges_scaled <- df %>%
+  group_by(subregion) %>%
+  summarize(start = min(date_scaled), end = max(date_scaled))
+res.all.glmer.f <- as.tibble(res.all.glmer) %>%
+  group_by(subregion) %>%
+  nest() %>%
+  left_join(date_ranges_scaled) %>%
+  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date_scaled > start))) %>% #, date < end))) %>%
+  dplyr::select(subregion, data.f) %>%
+  unnest(data.f) %>%
+  mutate(date = as.Date(date_scaled * datesd + datemean))
+
+as.tibble(res.all.glm.f) %>%
   ggplot(aes(x = date, y = prob, color = subregion)) +
   geom_line() +
+  geom_line(data = as.tibble(res.all.glmer.f), lty = 2) +
   scale_x_date(date_breaks = "months", date_labels = "%b") +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
   labs(x = "Date", y = "Percent mortality")
 
-# Pull out Oct1 and Apr1 mortality for each region
-as.tibble(res2.f) %>%
+# Pull out Oct1 and Apr1 mortality for each region using GLM
+as.tibble(res.all.glm.f) %>%
+  filter(date %in% c("2023-10-01", "2024-04-01")) %>%
+  ggplot(aes(x = factor(date), y = prob)) +
+  geom_col() +
+  facet_wrap(~subregion, ncol = 1)
+
+# GLMER
+as.tibble(res.all.glmer.f) %>%
   filter(date %in% c("2023-10-01", "2024-04-01")) %>%
   ggplot(aes(x = factor(date), y = prob)) +
   geom_col() +
@@ -656,10 +695,11 @@ as.tibble(res2.f) %>%
 mod <- glm(cbind(n_dead, n_alive) ~ cummaxdhw * species, family = "binomial", data = df)
 res <- emmeans(mod, specs = "cummaxdhw", by = "species", type = "response", at = list(cummaxdhw = seq(0, 22, 0.1)))
 
+
 # Percent mortality w/ maxDHW
 ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
-  geom_point(aes(size = n_total, shape = species, color = subregion), alpha = 0.4) +
-  #scale_size(range = c(1,8)) +
+  geom_point(aes(size = n_total_cat, shape = species, color = subregion), alpha = 0.4) +
+  scale_size_discrete(range = c(1,4)) +
   theme_classic() +
   geom_line(data = as_tibble(res), aes(y = prob, lty = species))
 ```
