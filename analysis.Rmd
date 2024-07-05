@@ -712,17 +712,19 @@ as.tibble(res.all.glm.f) %>%
 out.glm <- as.tibble(res.all.glm.f) %>%
   filter(date %in% c("2023-10-01", "2024-03-01"))
 
-ggplot(out.glm, aes(x = factor(date), y = prob)) +
-  geom_col() +
-  facet_wrap(~subregion, ncol = 1)
+out.glm %>%
+  dplyr::select(subregion, date, prob) %>%
+  pivot_wider(values_from = prob, names_from = date) %>%
+  knitr::kable(caption = "Mortality from GLM")
 
 # GLMER
 out.glmer <- as.tibble(res.all.glmer.f) %>%
   filter(date %in% c("2023-10-01", "2024-03-01"))
 
-ggplot(out.glmer, aes(x = factor(date), y = prob)) +
-  geom_col() +
-  facet_wrap(~subregion, ncol = 1)
+out.glmer %>%
+  dplyr::select(subregion, date, prob) %>%
+  pivot_wider(values_from = prob, names_from = date) %>%
+  knitr::kable(caption = "Mortality from GLMER")
 
 ```
 
@@ -754,7 +756,16 @@ pies <- out.glm.forpie %>%
              xlim(c(2, 4)) +
              scale_fill_manual(values = c("#de2d26", "#a50f15", "#a6d96a")) +
              theme_void() +
-             theme(legend.position = "none")))
+             theme(legend.position = "none")),
+         barplot = map(data,
+     ~ggplot(filter(., name %in% c("dead1001", "dead0301")), aes(x = factor(name, levels = c("dead1001", "dead0301")), y = ymax)) +
+             geom_col(fill = "#de2d26") +
+             scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+             scale_x_discrete(labels = c("Oct-23", "Mar-24")) +
+             labs(x = "", y = "") +
+             theme_classic() +
+             theme(plot.background = element_blank(), panel.background = element_blank(),
+                   axis.text.x = element_text(angle = 0, hjust = c(0.6, 0.4)))))
 
 # Alter map extent
 mapfig2 <- basemap +
@@ -762,7 +773,7 @@ mapfig2 <- basemap +
   coord_sf(xlim = c(-83.5, -79), ylim = c(23.7, 26.6), expand = FALSE) +
   theme(legend.position = "none")
 
-
+library(cowplot)
 outmap <- ggdraw() +
   draw_plot(mapfig2) +
   draw_plot(pies$pie[[1]], height = 0.2, x = 0.4, y = 0.75) +
@@ -774,21 +785,77 @@ outmap <- ggdraw() +
 
 ggsave("outmap.png", plot = outmap, width = 183, height = 140, units = "mm")
 
-outmap
+
+
+# Add DHWs to map
+dhwmean <- outfixed %>%
+  group_by(subregion, date) %>%
+  summarize(dhw = mean(dhw))
+new_dates <- seq.Date(from = as.Date("2024-01-01"), to = as.Date("2024-03-01"), by = "day")
+new_data <- expand_grid(date = new_dates, subregion = levels(dhwmean$subregion), dhw = 0)
+dhwmean <- bind_rows(dhwmean, new_data)
+library(ggh4x)
+(dhwfig <- ggplot(out, aes(x = date, y = dhw, color = subregion)) +
+  geom_line(aes(group = siteclust), lwd = 0.2, alpha = 0.5) +
+  geom_line(data = dhwmean, lwd = 2, alpha = 0.6) +
+  geom_segment(x = as.Date("2023-10-01"), xend = as.Date("2023-10-01"), y = -1, yend = 22, lty = 2, lwd = 0.1, color = "black") +
+  geom_segment(x = as.Date("2024-03-01"), xend = as.Date("2024-03-01"), y = -1, yend = 9, lty = 2, lwd = 0.1, color = "black") +
+  scale_x_date(breaks = as.Date(c("2023-06-01", "2023-10-01", "2024-03-01")), date_labels = "%b-%y",
+               date_minor_breaks = "1 month", guide = "axis_minor") +
+  labs(x = "", y = "Degree Heating Weeks (°C-weeks)") +
+  theme_classic() +
+  theme(legend.position = "none",
+        plot.background = element_blank(),
+        panel.background = element_blank(),
+        ggh4x.axis.ticks.length.minor = rel(1)))
+
+(outmap2 <- outmap +
+  draw_plot(dhwfig, height = 0.5, width = 0.4, x = 0.1, y = 0.4))
+
+ggsave("outmap2.png", plot = outmap2, width = 183, height = 140, units = "mm")
+
+
+# Bar map
+outmapbars <- ggdraw() +
+  draw_plot(mapfig2) +
+  draw_plot(pies$barplot[[1]], height = 0.25, width = 0.2, x = 0.775, y = 0.675) +
+  draw_plot(pies$barplot[[2]], height = 0.25, width = 0.2, x = 0.775, y = 0.445) +
+  draw_plot(pies$barplot[[3]], height = 0.25, width = 0.2, x = 0.705, y = 0.205) +
+  draw_plot(pies$barplot[[4]], height = 0.25, width = 0.2, x = 0.5, y = 0.075) +
+  draw_plot(pies$barplot[[5]], height = 0.25, width = 0.2, x = 0.275, y = 0.06) +
+  draw_plot(pies$barplot[[6]], height = 0.25, width = 0.2, x = 0.05, y = 0.06)
+
+(outmap3 <- outmapbars +
+  draw_plot(dhwfig, height = 0.5, width = 0.4, x = 0.1, y = 0.4))
+ggsave("outmap3.png", plot = outmap3, width = 183, height = 140, units = "mm")
+
 ```
 
-
+# Plot mortality vs. dhw
 ```{r}
 
 mod <- glm(cbind(n_dead, n_alive) ~ cummaxdhw * species, family = "binomial", data = df)
-res <- emmeans(mod, specs = "cummaxdhw", by = "species", type = "response", at = list(cummaxdhw = seq(0, 22, 0.1)))
+res <- emmeans(mod, specs = "cummaxdhw", by = "species", type = "response", interval = "prediction",
+               at = list(cummaxdhw = seq(0, 22, 0.1)))
 
 
 # Percent mortality w/ maxDHW
 ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
-  geom_point(aes(size = n_total_cat, shape = species, color = subregion), alpha = 0.4) +
-  scale_size_discrete(range = c(1,4)) +
+  geom_point(aes(size = log10(n_total), shape = species, color = subregion), alpha = 0.3) +
+  #scale_size_discrete(range = c(1,4)) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Peak DHW", y = "Mortality") +
   theme_classic() +
   geom_line(data = as_tibble(res), aes(y = prob, lty = species))
+
+# Just fitted curves
+as_tibble(res) %>%
+  ggplot(aes(x = cummaxdhw, y = prob, color = species, lty = species)) +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.15, lwd = 0) +
+  geom_line() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Peak DHW", y = "Mortality") +
+  theme_classic() 
+
 ```
 
