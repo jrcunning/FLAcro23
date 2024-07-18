@@ -16,9 +16,12 @@ library(emmeans)
 library(geosphere)
 library(readxl)
 library(tidyverse)
+library(cowplot)
 ```
 
 # Import coral mortality data
+
+#### NOAA, CRF, Mote, NSU, UM, FWC, USGS, Shedd
 ```{r import_data}
 ## CRF data
 crf0 <- read_xlsx("CRF_FL_Acropora_data_.xlsx")
@@ -730,61 +733,12 @@ out.glmer %>%
 
 # Put percent mort on map
 ```{r}
-#make pies
-
-out.glm.forpie <- out.glmer %>%
-  group_by(subregion) %>%
-  summarize(dead1001 = prob[date %in% as.Date("2023-10-01")],
-            dead0301 = prob[date %in% as.Date("2024-03-01")] - dead1001,
-            live0301 = 1 - dead0301 - dead1001) %>%
-  pivot_longer(c(dead1001, dead0301, live0301)) %>%
-  group_by(subregion) %>%
-  mutate(ymax = cumsum(value),
-         ymin = c(0, head(ymax, n=-1)))
-
-  
-
-pies <- out.glm.forpie %>%
-  left_join(counts1) %>%
-  nest(data = -subregion) %>%
-  mutate(pie = map(data,
-     ~ggplot(., aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=name)) +
-             geom_rect() +
-             geom_text(aes(x = 2.3, y = 0, label = scales::label_percent(accuracy = 0.01)(round(sort(ymax)[2], 4))), size = 3) +
-             geom_text(aes(x = 2, y = 0, label = paste("n =", maxtot)), size = 2) +
-             coord_polar(theta="y") +
-             xlim(c(2, 4)) +
-             scale_fill_manual(values = c("#de2d26", "#a50f15", "#a6d96a")) +
-             theme_void() +
-             theme(legend.position = "none")),
-         barplot = map(data,
-     ~ggplot(filter(., name %in% c("dead1001", "dead0301")), aes(x = factor(name, levels = c("dead1001", "dead0301")), y = ymax)) +
-             geom_col(fill = "#de2d26") +
-             scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
-             scale_x_discrete(labels = c("Oct-23", "Mar-24")) +
-             labs(x = "", y = "") +
-             theme_classic() +
-             theme(plot.background = element_blank(), panel.background = element_blank(),
-                   axis.text.x = element_text(angle = 0, hjust = c(0.6, 0.4)))))
 
 # Alter map extent
 mapfig2 <- basemap +
   geom_point(data = dfs, aes(x = lon, y = lat, color = subregion, size = maxn_cat, shape = species), alpha = 0.4) +
-  coord_sf(xlim = c(-83.5, -79), ylim = c(23.7, 26.6), expand = FALSE) +
+  coord_sf(xlim = c(-83.5, -79), ylim = c(23.6, 26.5), expand = FALSE) +
   theme(legend.position = "none")
-
-library(cowplot)
-outmap <- ggdraw() +
-  draw_plot(mapfig2) +
-  draw_plot(pies$pie[[1]], height = 0.2, x = 0.4, y = 0.75) +
-  draw_plot(pies$pie[[2]], height = 0.2, x = 0.4, y = 0.515) +
-  draw_plot(pies$pie[[3]], height = 0.2, x = 0.335, y = 0.275) +
-  draw_plot(pies$pie[[4]], height = 0.2, x = 0.175, y = 0.125) +
-  draw_plot(pies$pie[[5]], height = 0.2, x = -0.05, y = 0.075) +
-  draw_plot(pies$pie[[6]], height = 0.2, x = -0.3, y = 0.1)
-
-ggsave("outmap.png", plot = outmap, width = 183, height = 140, units = "mm")
-
 
 
 # Add DHWs to map
@@ -800,33 +754,62 @@ library(ggh4x)
   geom_line(data = dhwmean, lwd = 2, alpha = 0.6) +
   geom_segment(x = as.Date("2023-10-01"), xend = as.Date("2023-10-01"), y = -1, yend = 22, lty = 2, lwd = 0.1, color = "black") +
   geom_segment(x = as.Date("2024-03-01"), xend = as.Date("2024-03-01"), y = -1, yend = 9, lty = 2, lwd = 0.1, color = "black") +
+  annotate("text", x = c(as.Date("2023-10-01"), as.Date("2024-03-01")), y = c(2, 2), 
+           label = c(expression(italic(t)[1]), expression(italic(t)[2])), hjust = 1.3) +
   scale_x_date(breaks = as.Date(c("2023-06-01", "2023-10-01", "2024-03-01")), date_labels = "%b-%y",
                date_minor_breaks = "1 month", guide = "axis_minor") +
   labs(x = "", y = "Degree Heating Weeks (°C-weeks)") +
   theme_classic() +
   theme(legend.position = "none",
+        axis.line = element_line(size = 0.1),
+        axis.ticks = element_line(size = 0.1),
+        axis.title.y = element_text(size = 8),
         plot.background = element_blank(),
         panel.background = element_blank(),
         ggh4x.axis.ticks.length.minor = rel(1)))
 
-(outmap2 <- outmap +
-  draw_plot(dhwfig, height = 0.5, width = 0.4, x = 0.1, y = 0.4))
-
-ggsave("outmap2.png", plot = outmap2, width = 183, height = 140, units = "mm")
-
 
 # Bar map
+bars <- out.glmer %>%
+  dplyr::select(subregion, date, dead = prob, asymp.LCL, asymp.UCL) %>%
+  mutate(alive = 1 - dead, subregion2 = subregion) %>%
+  pivot_longer(c(dead, alive), names_to = "cat", values_to = "val") %>%
+  left_join(counts1) %>%
+  nest(data = -subregion) %>%
+  mutate(barplots = map(data, ~ggplot(., aes(x = factor(date))) +
+             geom_col(aes(y = val, fill = cat), color = "black", lwd = 0.1) +
+             geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0.1, width = 0.1) +
+             geom_text(aes(x = 1.5, y = 1, label = paste(subregion2, "\n", "n =", maxtot), color = subregion2), vjust = -0.25, size = 2) +
+             scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25), labels = c("0%", "", "50%", "", "100%")) +
+             scale_x_discrete(labels = c(expression(italic(t)[1]), expression(italic(t)[2]))) +
+             scale_color_manual(values = c("#F8766D","#B79F00","#00BA38","#00BFC4","#619CFF","#F564E3"), drop = FALSE) +
+             scale_fill_manual(values = c("#a6d96a", "#de2d26")) +
+             labs(x = "", y = "") +
+             coord_cartesian(clip = 'off') +
+             theme_classic() +
+             theme(legend.position = "none", 
+                   axis.line = element_line(size = 0.1),
+                   axis.ticks = element_line(size = 0.1),
+                   plot.background = element_blank(), 
+                   panel.background = element_blank(),
+                   axis.text.x = element_text(angle = 0, hjust = c(0.5, 0.5)),
+                   axis.text.y = element_text(size = 5))))
+
+bars$barplots[[6]] <- bars$barplots[[6]] +
+  labs(y = expression(italic("Acropora spp.")~mortality)) +
+  theme(axis.title.y = element_text(size = 8))
+
 outmapbars <- ggdraw() +
   draw_plot(mapfig2) +
-  draw_plot(pies$barplot[[1]], height = 0.25, width = 0.2, x = 0.775, y = 0.675) +
-  draw_plot(pies$barplot[[2]], height = 0.25, width = 0.2, x = 0.775, y = 0.445) +
-  draw_plot(pies$barplot[[3]], height = 0.25, width = 0.2, x = 0.705, y = 0.205) +
-  draw_plot(pies$barplot[[4]], height = 0.25, width = 0.2, x = 0.5, y = 0.075) +
-  draw_plot(pies$barplot[[5]], height = 0.25, width = 0.2, x = 0.275, y = 0.06) +
-  draw_plot(pies$barplot[[6]], height = 0.25, width = 0.2, x = 0.05, y = 0.06)
+  draw_plot(bars$barplots[[1]], height = 0.25, width = 0.2, x = 0.775, y = 0.65) +
+  draw_plot(bars$barplots[[2]], height = 0.25, width = 0.2, x = 0.775, y = 0.41) +
+  draw_plot(bars$barplots[[3]], height = 0.25, width = 0.2, x = 0.675, y = 0.18) +
+  draw_plot(bars$barplots[[4]], height = 0.25, width = 0.2, x = 0.5, y = 0.075) +
+  draw_plot(bars$barplots[[5]], height = 0.25, width = 0.2, x = 0.3, y = 0.05) +
+  draw_plot(bars$barplots[[6]], height = 0.25, width = 0.2, x = 0.1, y = 0.05)
 
 (outmap3 <- outmapbars +
-  draw_plot(dhwfig, height = 0.5, width = 0.4, x = 0.1, y = 0.4))
+  draw_plot(dhwfig, height = 0.48, width = 0.4, x = 0.1, y = 0.445))
 ggsave("outmap3.png", plot = outmap3, width = 183, height = 140, units = "mm")
 
 ```
