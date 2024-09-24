@@ -493,6 +493,11 @@ df <- left_join(df, dhws, by = c("siteclust", "lon", "lat", "date")) %>%
   mutate(subregion = factor(subregion, levels = levels(sites$subregion)))
 ```
 
+```{r}
+# Save integrated dataset to file
+write_csv(df, file = "FLAcro23_data_processed.csv")
+```
+
 # Map surveys over space and time
 
 ```{r map_data}
