@@ -1,502 +1,29 @@
 ---
-title: "Data tidying"
+title: "FLAcro23: Data analysis"
+author: "Ross Cunning and Rich Karp"
 output: html_document
-date: "2024-06-12"
+date: "2024-09-26"
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
-```
-
-```{r load_libraries}
-library(sp)
-library(parzer)
+```{r}
 library(lme4)
 library(emmeans)
-library(geosphere)
-library(readxl)
 library(tidyverse)
 library(cowplot)
-library(lubridate)
-library(ggthemes)
 ```
 
-# Import coral mortality data
-
-#### NOAA, CRF, Mote, NSU, UM, FWC, USGS, Shedd
-```{r import_data}
-## CRF data
-crf0 <- read_xlsx("CRF_FL_Acropora_data_.xlsx")
-
-crf <- crf0 %>%
-  mutate(
-    data_provider = "crf",
-    site = paste(Site, Mosaic_Area_Name),
-    lat = Latitude,
-    lon = Longitude,
-    date = as_date(Date),
-    species = Spp,
-    coral_type = `Wild/Outplant`,
-    n_alive = `N (surviving colonies)`,
-    n_dead = `N (colonies)` - `N (surviving colonies)`,
-    n_geno = `N (Genotypes, if known)`
-  ) %>%
-  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
-         n_alive, n_dead, n_geno)
-
-
-## Mote data
-mml0 <- read_xlsx("FL_Acropora data_MoteMarineLaboratory.xlsx")
-
-mml <- mml0 %>%
-  mutate(
-    data_provider = "mml",
-    site = Site,
-    lat = Latitude,
-    lon = Longitude,
-    date = as_date(Date),
-    species = `Spp (APAL/ACER)`,
-    coral_type = `Wild/Outplant`,
-    n_alive = `N (surviving colonies)`,
-    n_dead = `N (colonies)` - `N (surviving colonies)`,
-    n_geno = `N (Genotypes, if known)`
-  ) %>%
-  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
-         n_alive, n_dead, n_geno)
-
-
-## NSU data
-nsu0 <- read_xlsx("NSU_Gilliam_Acropora data.xlsx")
-
-nsu <- nsu0 %>%
-  mutate(
-    data_provider = "nsu",
-    site = Site,
-    lat = parse_lat(Latitude),
-    lon = parse_lon(Longitude) * -1,
-    date = as_date(Date),
-    species = `Spp (APAL/ACER)`,
-    coral_type = `Wild/Outplant`,
-    n_alive = `N (surviving colonies)`,
-    n_dead = `N (colonies)` - `N (surviving colonies)`,
-    n_geno = `N (Genotypes, if known)`
-  ) %>%
-  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
-         n_alive, n_dead, n_geno)
-
-
-## UM data
-um0 <- read_xlsx("UM_AcroporaData.xlsx")
-
-um <- um0 %>%
-  mutate(
-    data_provider = "um",
-    site = Site,
-    lat = Latitude,
-    lon = Longitude,
-    date = as_date(Date),
-    species = `Spp (APAL/ACER)`,
-    coral_type = `Wild/Outplant`,
-    n_alive = `N (surviving colonies)`,
-    n_dead = `N (colonies)` - `N (surviving colonies)`,
-    n_geno = `N (Genotypes, if known)`
-  ) %>%
-  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
-         n_alive, n_dead, n_geno)
-
-#bnp data
-bnp0 <- read_xlsx("FL_Acropora data_NPS-BNP.xlsx", sheet = "NPS BNP data", n_max = 20)
-bnp <- bnp0%>%
-  #data cleaning
-  mutate(Date=case_when(Date=="Mar24"~ymd("2024/3/1"),
-                        Date=="May24"~ymd("2024/05/1")),
-         `N (surviving colonies)`=as.numeric(str_extract(`N (surviving colonies)`, "[0-9]+")),
-         `N (colonies)`=as.numeric(str_extract(`N (colonies)`, "[0-9]+")),
-         `N (Genotypes, if known)`=case_when(str_detect(`N (Genotypes, if known)`, "pend|unk")~NA,
-                                                        TRUE~as.numeric(`N (Genotypes, if known)`)),
-         `Wild/Outplant`=ifelse(str_detect(`Wild/Outplant`, "outplant"), "Outplant", "Wild"),
-         `Spp`=str_to_upper(`Spp`)) %>%
-  
-  
-  #mutates
-  mutate(
-    data_provider = "bnp",
-    site = Site,
-    lat = Latitude,
-    lon = Longitude,
-    date = as_date(Date),
-    species = `Spp`,
-    coral_type = `Wild/Outplant`,
-    n_alive = `N (surviving colonies)`,
-    n_dead = `N (colonies)` - `N (surviving colonies)`,
-    n_geno = `N (Genotypes, if known)`
-  ) %>%
-  
-  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
-         n_alive, n_dead, n_geno)
-
-## FWC data
-fwc0 <- read_xlsx("FL_APAL_Summary Data.xlsx", sheet = "FWC", 
-                  n_max = 28,
-                  na = c("N/A", "n/a")) %>%
-  filter(Site != "REGION SUMMARY")
-
-fwc <- fwc0 %>%
-  mutate(
-    data_provider = "fwc",
-    site = Site,
-    lat = Latitude,
-    lon = Longitude,
-    date = as_date(Date),
-    species = `Spp`,
-    coral_type = `Wild/Outplant`,
-    n_alive = `N (surviving colonies)`,
-    n_dead = `N (colonies)` - `N (surviving colonies)`,
-    n_geno = `N (Genotypes, if known)`
-  ) %>%
-  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
-         n_alive, n_dead, n_geno)
-
-
-## USGS data
-usgs0 <- read_xlsx("FL_APAL_Summary Data.xlsx", sheet = "KUFFNER", 
-                  n_max = 12,
-                  na = c("N/A", "n/a")) %>%
-  filter(Site != "REGION SUMMARY")
-
-usgs <- usgs0 %>%
-  mutate(
-    data_provider = "usgs",
-    site = Site,
-    lat = Latitude,
-    lon = Longitude,
-    date = as_date(Date),
-    species = `Spp`,
-    coral_type = `Wild/Outplant`,
-    n_alive = `N (surviving colonies)`,
-    n_dead = `N (colonies)` - `N (surviving colonies)`,
-    n_geno = `N (Genotypes, if known)`
-  ) %>%
-  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
-         n_alive, n_dead, n_geno)
-
-
-## DW data
-dw0 <- read_xlsx("FL_APAL_Summary Data_DEW2.xlsx", sheet = "DANA W", 
-                  n_max = 95,
-                  na = c("N/A", "n/a")) %>%
-  filter(Site != "REGION SUMMARY")
-
-dw <- dw0 %>%
-  mutate(
-    data_provider = "dw",
-    site = Site,
-    lat = Latitude,
-    lon = Longitude,
-    date = as_date(Date),
-    species = `Spp`,
-    coral_type = `Wild/Outplant`,
-    n_alive = `N (surviving colonies)`,
-    n_dead = `N (colonies)` - `N (surviving colonies)`,
-    n_geno = `N (Genotypes, if known)`
-  ) %>%
-  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
-         n_alive, n_dead, n_geno)
-
-# Dana counted fission/partial mortality resulting in separate ramets, so number of survivors is sometimes higher than original total number of colonies. In these cases, set number of survivors to equal the number of original colonies.
-dw <- dw %>%
-  mutate(n_dead = pmax(0, n_dead))
-
-dw <- dw %>%
-  group_by(data_provider, site, date, species, coral_type) %>%
-  summarize(n_alive = sum(n_alive),
-            n_dead = sum(n_dead),
-            lat = mean(lat),
-            lon = mean(lon))
-
-# Shedd DRTO ACER data
-# June outplants
-jun <- expand_grid(date = as.Date("2023-06-30"),
-                   site = c("Pulaski Shoal", "Texas Rock", "Southwest Channel"),
-                   n_dead = 0,
-                   n_alive = 180,
-                   coral_type = "Outplant",
-                   data_provider = "shedd",
-                   species = "ACER")
-
-dtac <- read_csv("fouling_metadata.csv")
-
-dtac <- dtac %>%
-  filter(!is.na(Ranking)) %>%
-  group_by(Site, Lat, Lon) %>%
-  summarize(n_dead = sum(Ranking > 1),
-            n_alive = sum(Ranking == 1)) %>%
-  mutate(date = as.Date("2023-09-09"),
-         data_provider = "shedd",
-         species = "ACER",
-         coral_type = "Outplant",
-         n_geno = NA) %>%
-  ungroup() %>%
-  dplyr::select(data_provider, site = Site, lat = Lat, lon = Lon,
-                date, species, coral_type, n_alive, n_dead, n_geno)
-  
-dtac <- dtac %>%
-  bind_rows(jun) %>%
-  group_by(site) %>%
-  mutate(lat = ifelse(is.na(lat), first(na.omit(lat)), lat),
-         lon = ifelse(is.na(lon), first(na.omit(lon)), lon)) %>%
-  ungroup()
-
-
-## MIR data
-mir0 <- read_xlsx("MIR_Acropora data.xlsx")
-
-mir <- mir0 %>%
-  mutate(
-    data_provider = "mir",
-    site = Site,
-    lat = Latitude,
-    lon = Longitude,
-    date = as_date(Date),
-    species = `Spp (APAL/ACER)`,
-    coral_type = `Wild/Outplant`,
-    n_alive = `N (surviving colonies)`,
-    n_dead = `N (colonies)` - `N (surviving colonies)`,
-    n_geno = `N (Genotypes, if known)`
-  ) %>%
-  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
-         n_alive, n_dead, n_geno)
-
-
-# Combine all data
-df0 <- bind_rows(
-  crf, dw, fwc, mml, nsu, um, usgs, dtac, mir, bnp
-) %>%
-  mutate(n_total = n_dead + n_alive,
-         pct_mort = n_dead / n_total)
-```
-
-# Tidy and filter data
-```{r tidy_filter}
-# Change coral_type WILD to Wild
-df0 <- df0 %>%
-  mutate(coral_type = case_when(coral_type == "WILD" ~ "Wild", TRUE ~ coral_type))
-
-# Create a categorical variable for number of ramets surveyed at each site
-df0 <- df0 %>%
-  mutate(n_total_cat = cut(n_total, breaks = c(0, 10, 100, 1000, 7000), right = FALSE))
-
-# Filter to just June 2023 and after
-df0 <- df0 %>% filter(date > "2023-06-01")
-```
-
-# Cluster sites and assign subregions
-```{r tidy_data}
-# Ensure unique site names (some diff. groups used same site name (e.g., "100") for diff. sites)
-# Generate distinct site names
-# df1 <- df0 %>%
-#   group_by(site) %>%
-#   mutate(site_count = n_distinct(paste(lat, lon))) %>%
-#   group_by(site, lat, lon) %>%
-#   mutate(site = ifelse(site_count == 1, site, paste0(site, "_", cur_group_id()))) %>%
-#   ungroup()
-
-df1 <- df0 %>%
-  mutate(site = paste(data_provider, site, sep = "."))
-
-# -----------
-# Assign Subregions based on DRM subregions
-load("../DRM2024/output/2023.RData")
-subregions <- distinct(df23, Site, Latitude, Longitude, Subregion) %>%
-  dplyr::select(site = Site, lat = Latitude, lon = Longitude, subregion = Subregion) %>%
-  drop_na(lat)
-
-# Calculate distances between acropora data locations and drm sites (with subregion info)
-
-# Omit acropora data sites with missing coords
-df1 <- df1 %>% drop_na(lat, lon)
-dist_matrix <- distm(df1[, c("lat", "lon")], subregions[, c("lat", "lon")], fun = distHaversine)
-
-# Find the nearest location in drm data (with subregion) for each entry in acropora data
-nearest_indices <- apply(dist_matrix, 1, which.min)
-
-# Add nearest subregion to df
-df1 <- df1 %>%
-  mutate(subregion = subregions$subregion[nearest_indices]) %>%
-  drop_na(date) %>%
-  droplevels()
-
-# Change Mid-Upper Keys Transition to Middle Keys 
-# Combine Mid-Upper Keys Transition with Middle Keys (only ~2 timepoints)
-df1 <- df1 %>%
-  mutate(subregion = case_when(subregion == "Mid-Upper Keys Transition" ~ "Middle Keys",
-                               TRUE ~ subregion)) %>%
+# Import processed data
+```{r}
+# Processed data with sites for each data provider
+df1 <- read_csv("data/processed/FLAcro23_data_processed_sites.csv") %>%
   mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys",
                                                   "Middle Keys", "Lower Keys", "Tortugas--Dry Tortugas NP")))
-
-# -----------
-# Cluster sites that are close together
-dist_mat <- distm(df1[, c("lon", "lat")], fun = distHaversine)
-hc <- hclust(as.dist(dist_mat), method = "complete")
-clusters <- cutree(hc, h = 2000)  # Cluster based on 2000m threshold
-df1$siteclust <- as.character(clusters)
-
-# ggplot(df, aes(x = lon, y = lat, color = as.factor(siteclust))) +
-#   geom_point()
-
-# Combine all data by site cluster/date
-df <- df1 %>%
-  group_by(siteclust) %>%
-  mutate(lat = mean(lat),
-         lon = mean(lon)) %>%
-  group_by(siteclust, subregion, date, species, coral_type, lat, lon) %>%
-  summarize(n_alive = sum(n_alive),
-            n_dead = sum(n_dead)) %>%
-  ungroup() %>%
-  mutate(n_total = n_dead + n_alive,
-         pct_mort = n_dead / n_total)
+# Processed data with sites clustered based on proximity
+df <- read_csv("data/processed/FLAcro23_data_processed.csv") %>%
+  mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys",
+                                                  "Middle Keys", "Lower Keys", "Tortugas--Dry Tortugas NP")))
 ```
 
-# Add DHW data for all site clusters
-```{r add_DHW}
-# Import all NetCDF files for each date from June 1 through December 31, 2023
-nc.files <- list.files("../DRM2024/data/dhw/2023", pattern = "*.nc$", full.names = TRUE)
-
-# Get coordinate box for Florida Reef Tract
-#nc <- nc_open("data/dhw/ct5km_dhw_v3.1_20230901.nc")
-#nct <- ncvar_get(nc, "degree_heating_week", start = c(2000, 1240,1), count = c(21, 81,1))
-# Longitude -83.525 --> index 1930
-#nc$dim$lon$vals[2021]
-# Longitude -78.975 --> index 2021
-# Latitude 24 --> index 1321
-#nc$dim$lat$vals[1240]
-# Latitude 28 --> index 1240
-
-# Get DRM survey site coordinates
-# Import data
-sites <- df %>%
-  dplyr::distinct(siteclust, subregion, lon, lat)
-
-# Open all DHW NCDF4 files
-library(ncdf4) # package for netcdf manipulation
-library(raster) # package for raster manipulation
-nc.data <- tibble(file = nc.files) %>%
-  mutate(date = map_chr(file, ~str_extract(., "2023\\d+"), format = "%Y%m%d"),
-         data = map(file, nc_open),
-      dhw.all = map(data, ~ncvar_get(., "degree_heating_week", start = c(1930, 1240, 1), count = c(91, 81, 1))),
-            r = map(dhw.all, ~raster(t(.), xmn = -83.525, xmx = -78.975, ymn = 23.975, ymx = 28.025,
-                                     crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))),
-       coords = list(sites),
-          dhw = map2(r, coords, ~raster::extract(.x, SpatialPoints(.y[,3:4]), method = "simple")))
-
-out <- nc.data %>% dplyr::select(date, coords, dhw) %>% unnest() %>%
-  mutate(date = as_date(date, format = "%Y%m%d"))
-
-# Check that all sites got DHW values
-dhws <- out %>%
-  group_by(siteclust) %>%
-  dplyr::summarize(avgdhw = mean(dhw))
-nodhw <- dhws %>% filter(is.na(avgdhw))
-#nodhw
-## 8 siteclusts did not get DHW -- outside of 5km pixels (too close to land)
-
-# Assign missing dhws value of closest site that has a dhw value
-library(FastKNN)
-
-# matrix of neighbours
-n <- nrow(sites)
-k <- 35 # Number of nearest neighbors to find
-dm <- dist(sites[,3:4])
-nn <- matrix(0,n,k) # n x k nearest neighbors matrix
-for (i in 1:n) {
-   nn[i,] = k.nearest.neighbors(i, as.matrix(dm), k = k)
-}
-nn[] <- as.character(sites$siteclust)[c(nn)]
-
-# Get names of all sites and their nearest neighbors
-neighbors <- as_tibble(cbind(siteclust = as.character(sites$siteclust), nn))
-# Get dhws of all sites and dhws of their nearest neighbors
-neighborsdhw <- neighbors %>%
-  pivot_longer(-1, names_to = "nno", values_to = "nname") %>%
-  mutate(nno = parse_number(nno) - 1) %>%
-  mutate(navgdhw = dhws$avgdhw[match(nname, dhws$siteclust)])
-
-finddhw <- neighborsdhw %>%
-  filter(siteclust %in% nodhw$siteclust)
-
-dhwmatch <- finddhw %>% 
-  group_by(siteclust) %>%
-  filter(!is.na(navgdhw)) %>%
-  dplyr::summarize(closest_n_with_dhw = nname[nno == min(nno)]) %>%
-  right_join(nodhw) %>%
-  dplyr::select(1, 2)# %>%
-  #print(n = nrow(.))
-  
-# Output matches
-matches <- left_join(dhwmatch, sites)
-#range(matches$Longitude)
-#range(matches$Latitude)
-matches2 <- left_join(dplyr::select(matches, siteclust = closest_n_with_dhw), sites) %>%
-  distinct(siteclust, lon, lat)
-# 
-# # Plot matches
-# library(ggrepel)
-# ggplot(matches, aes(x = lon, y = lat)) +
-#   geom_point() +
-#   geom_point(data = matches2, color = "green") +
-#   geom_label_repel(data = matches2, aes(label = site), color = "green", max.overlaps = 100, force = 80) +
-#   geom_label_repel(aes(label = site), max.overlaps = 100, force = 80) +
-#   xlim(-80.125, -80) +
-#   ylim(26, 26.75)
-
-# Replace missing dhws with values from matching sites
-#matches
-fixing <- out %>%
-  nest(data = c(date, dhw)) 
-
-fixed <- fixing
-### dhw data for sites where missing gets replaced with dhw data for the site of its closest neighbor site with dhw data
-fixed[match(matches$siteclust, fixing$siteclust), "data"] <- fixing[match(matches$closest_n_with_dhw, fixing$siteclust), "data"]
-
-# ### test if it worked (dhw was missing for site 100, should have been replaced with dhw data from KC)
-# fixing %>% filter(site == "100") %>% pull(data)
-# fixed %>% filter(site == "KC") %>% pull(data)
-# 
-# identical(fixed$data[fixed$site == "100"], fixed$data[fixed$site == "KC"])
-# y1 <- fixed$data[fixed$site == "100"][[1]]
-# y2 <- fixed$data[fixed$site == "KC"][[1]]
-# cbind(y1, y2)
-
-# Unnest fixed output
-outfixed <- fixed %>% unnest()
-#outfixed %>% filter(is.na(dhw))
-dhws <- outfixed %>% dplyr::select(siteclust, lon, lat, date, dhw)
-
-# We only downloaded DHW from June through December 2024, but we have Acro survey data from before and after that interval. Those surveys would have DHW values of zero, so add those in...
-df11 <- expand_grid(
-  date = seq(as.Date("2023-03-14"), as.Date("2024-05-10"), by = "days"),
-  dhws %>% distinct(siteclust, lat, lon)
-)
-dhws <- full_join(dhws, df11) %>%
-  arrange(siteclust, lon, lat, date) %>%
-  replace_na(list(dhw = 0))
-
-
-# Get max. DHW value for on OR BEFORE date surveyed
-dhws <- dhws %>%
-  group_by(siteclust) %>%
-  mutate(cummaxdhw = cummax(dhw))
-
-
-# For each survey, join DHW on date of survey, and max DHW experienced on or BEFORE date of survey
-df <- left_join(df, dhws, by = c("siteclust", "lon", "lat", "date")) %>%
-  mutate(subregion = factor(subregion, levels = levels(sites$subregion)))
-```
-
-```{r}
-# Save integrated dataset to file
-write_csv(df, file = "FLAcro23_data_processed.csv")
-```
 
 # Map surveys over space and time
 
@@ -582,21 +109,10 @@ mapfig
 ```
 
 ## Fit generalized linear models (and mixed models)
-
 ```{r, fig.width = 8, fig.height = 9}
 # Fit model using glm
 mod.glm <- glm(cbind(n_dead, n_alive) ~ subregion * date * species, 
                family = "binomial", data = df)
-mod.glmQuasi <- glm(cbind(n_dead, n_alive) ~ subregion * date * species, 
-               family = "quasibinomial", data = df)
-mod.glm2 <- glm(cbind(n_dead, n_alive) ~ subregion + date + species + subregion:date:species, 
-                family = "binomial", data = df)
-
-mod.glm2.quasi <- glm(cbind(n_dead, n_alive) ~ subregion + date + species + subregion:date:species, 
-                family = "quasibinomial", data = df)
-# AIC(mod.glm, mod.glm2)
-# BIC(mod.glm, mod.glm2)
-AIC(mod.glm2.quasi, mod.glmQuasi)
 
 # Fit model using glmer (sites as random factors)
 # Rescale the date predictor
@@ -604,11 +120,6 @@ df$date_scaled <- scale(as.numeric(df$date))
 mod.glmer <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled * species + (1| siteclust/species),
                    family = binomial,
                    data = df)
-mod.glmer2 <- glmer(cbind(n_dead, n_alive) ~ subregion + date_scaled + species + 
-                    subregion:date_scaled:species + (1| siteclust/species),
-                    family = binomial,
-                    data = df)
-#AIC(mod.glmer, mod.glmer2)
 
 # Get fitted values for glm
 res.glm <- emmeans(mod.glm, specs = c("date", "subregion", "species"), type = "response",
@@ -658,12 +169,7 @@ glmer_fitted_mort <- res.glmer.f %>%
   filter(date %in% c(ymd("2023-10-01"), ymd("2024-03-01"))) %>%
   dplyr::select(subregion, species, date, prob)
 
-
-#Make wide mortality table by subregion for each species
-mortSpecTableWide <- glmer_fitted_mort %>%
-  pivot_wider(id_cols = subregion, names_from = c(species, date), values_from = prob)
-
-# Plot fitted lines over raw data
+# Plot model fits over raw data
 mort +
   geom_line(data = res.glm.f, aes(y = prob)) +
   geom_line(data = res.glmer.f, aes(y = prob), lty = 2) +
@@ -673,13 +179,15 @@ mort +
 
 #ggsave("outputs/acerApalRegionMort.png", width=10, height=12)
 
-# ggplot(as.tibble(res), aes(x = date, y = prob)) +
-#   geom_line() +
-#   facet_grid(species ~ subregion)
+
+# Make wide mortality table by subregion for each species
+mortSpecTableWide <- glmer_fitted_mort %>%
+  pivot_wider(id_cols = subregion, names_from = c(species, date), values_from = prob)
+
+knitr::kable(mortSpecTableWide)
 ```
 
-
-# Response differences between APAL and ACER
+# Response differences between APAL and ACER - DELETE?
 ```{r apal_vs_acer, eval = FALSE, include = FALSE}
 
 # Tests are producing odds ratios with extremely high SE's, yet low p-values... need to investigate further
@@ -772,15 +280,6 @@ res.all.glmer.f <- as.tibble(res.all.glmer) %>%
   unnest(data.f) %>%
   mutate(date = as_date(date_scaled * datesd + datemean))
 
-as.tibble(res.all.glm.f) %>%
-  ggplot(aes(x = date, y = prob, color = subregion)) +
-  geom_line() +
-  geom_line(data = as.tibble(res.all.glmer.f), lty = 2) +
-  scale_x_date(date_breaks = "months", date_labels = "%b") +
-  theme_classic() +
-  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
-  labs(x = "Date", y = "Percent mortality")
-
 # Pull out Oct1 and Mar1 mortality for each region using GLM
 out.glm <- as.tibble(res.all.glm.f) %>%
   filter(date %in% c(ymd("2023-10-01"), ymd("2024-03-01")))
@@ -795,7 +294,7 @@ out.glmer <- as.tibble(res.all.glmer.f) %>%
   mutate(date=ymd(date))%>%
   filter(date %in% c(ymd("2023-10-01"), ymd("2024-03-01")))
 
-##Make table for mortality for each species without subregion
+##Make table for overall Acropora mortality for each subregion
 subregionTableRegion <- out.glmer%>%
   pivot_wider(id_cols = subregion, names_from = date, values_from = prob)
 
@@ -815,24 +314,21 @@ mod.all.glmer <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled + (1|sit
 
 # Put percent mort on map
 ```{r}
-
-# Alter map extent
+# Alter map extent to create space for adding graphs on top of map
 mapfig2 <- basemap +
   geom_point(data = dfs, aes(x = lon, y = lat, color = subregion, size = maxn_cat, shape = species), alpha = 0.4) +
   coord_sf(xlim = c(-83.5, -79), ylim = c(23.6, 26.5), expand = FALSE) +
   theme(legend.position = "none")
-mapfig2
 
 
-# Add DHWs to map
-dhwmean <- outfixed %>%
-  group_by(subregion, date) %>%
-  summarize(dhw = mean(dhw))
+# Create DHW plot to draw as inset on map
+dhwmean <- read_csv("data/processed/MeanDHW_subregions.csv")
+out <- read_csv("data/processed/DHW_siteclusts.csv")
 new_dates <- seq.Date(from = as.Date("2024-01-01"), to = as.Date("2024-03-01"), by = "day")
 new_data <- expand_grid(date = new_dates, subregion = levels(dhwmean$subregion), dhw = 0)
 dhwmean <- bind_rows(dhwmean, new_data)
 library(ggh4x)
-(dhwfig <- ggplot(out, aes(x = date, y = dhw, color = subregion)) +
+dhwfig <- ggplot(out, aes(x = date, y = dhw, color = subregion)) +
   geom_line(aes(group = siteclust), lwd = 0.2, alpha = 0.5) +
   geom_line(data = dhwmean, lwd = 2, alpha = 0.6) +
   geom_segment(x = as.Date("2023-10-01"), xend = as.Date("2023-10-01"), y = -1, yend = 22, lty = 2, lwd = 0.1, color = "black") +
@@ -849,10 +345,10 @@ library(ggh4x)
         axis.title.y = element_text(size = 8),
         plot.background = element_blank(),
         panel.background = element_blank(),
-        ggh4x.axis.ticks.length.minor = rel(1)))
+        ggh4x.axis.ticks.length.minor = rel(1))
 
 
-# Bar map
+# Create barplots of mortality at t1 and t2 for each subregion
 bars <- out.glmer %>%
   dplyr::select(subregion, date, dead = prob, asymp.LCL, asymp.UCL) %>%
   mutate(alive = 1 - dead, subregion2 = subregion) %>%
@@ -882,6 +378,7 @@ bars$barplots[[6]] <- bars$barplots[[6]] +
   labs(y = expression(italic("Acropora spp.")~mortality)) +
   theme(axis.title.y = element_text(size = 8))
 
+# Plot mortality barplots on top of the map
 outmapbars <- ggdraw() +
   draw_plot(mapfig2) +
   draw_plot(bars$barplots[[1]], height = 0.25, width = 0.2, x = 0.775, y = 0.65) +
@@ -891,61 +388,57 @@ outmapbars <- ggdraw() +
   draw_plot(bars$barplots[[5]], height = 0.25, width = 0.2, x = 0.3, y = 0.05) +
   draw_plot(bars$barplots[[6]], height = 0.25, width = 0.2, x = 0.1, y = 0.05)
 
+# Display map figure with additional plots
 (outmap3 <- outmapbars +
   draw_plot(dhwfig, height = 0.48, width = 0.4, x = 0.1, y = 0.445))
-#ggsave("outmap3.png", plot = outmap3, width = 183, height = 140, units = "mm")
 
+# Save
+ggsave("outmap3.png", plot = outmap3, width = 183, height = 140, units = "mm")
 ```
 
 # Plot mortality vs. dhw
 ```{r}
-#model species vs dhw for GLM
-modDhwGlm <- glm(cbind(n_dead, n_alive) ~ cummaxdhw * species, family = "binomial", data = df)
-summary(modDhwGlm)
+dff <- df %>% filter(coral_type != "Wild/Outplant")
 
+mortdhwplot <- ggplot(dff, aes(x = cummaxdhw, y = pct_mort)) +
+  geom_point(aes(size = n_total)) +
+  facet_wrap(~species + coral_type)
+mortdhwplot
+
+
+# # Model species vs dhw for GLM
+modDhwGlm <- glm(cbind(n_dead, n_alive) ~ cummaxdhw * species * coral_type, family = "binomial", data = dff)
 #predict data for GLM
-resDhwGlm <- emmeans(modDhwGlm, specs = "cummaxdhw", by = "species", type = "response", interval = "prediction",
-               at = list(cummaxdhw = seq(0, 22, 0.1))) %>%
+resDhwGlm <- emmeans(modDhwGlm, specs = "cummaxdhw", by = c("species", "coral_type"), type = "response", interval = "prediction",
+               at = list(cummaxdhw = seq(0, 25, 0.1))) %>%
   as_tibble(.) %>%
   mutate(type="glm")
 
-#model species vs dhw for GLMM
+
+# Model species vs dhw for GLMER
 mod.dhw.glmer <- glmer(cbind(n_dead, n_alive) ~ cummaxdhw * species * coral_type + (1|subregion),# (1|siteclust/species),
                    family = binomial,
                    data = dff)
-
-summary(mod.dhw.glmer)
-
-
+car::Anova(mod.dhw.glmer)
 #predict data for GLMM
 dhwGlmerRes <- emmeans(mod.dhw.glmer, specs = "cummaxdhw", by = c("species", "coral_type"), type = "response", interval = "prediction",
-               at = list(cummaxdhw = seq(0, 22, 0.1))) %>%
+               at = list(cummaxdhw = seq(0, 25, 0.1))) %>%
   as_tibble(.)%>%
   mutate(type="glmer")
 
 
 # Percent mortality w/ maxDHW
-ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
+mortdhwplot +
   #geom_point(aes(size = log10(n_total), shape = species, color = subregion), alpha = 0.3) +
   #scale_size_discrete(range = c(1,4)) +
   scale_y_continuous(labels = scales::percent) +
   labs(x = "Peak DHW", y = "Mortality") +
   theme_classic(base_size=16) +
-  geom_line(data = as_tibble(dhwGlmerRes), aes(y = prob, color = species, lty = coral_type))
-
-# plot Just fitted curves
-as_tibble(resDhwGlm) %>%
-  ggplot(aes(x = cummaxdhw, y = prob, color = species, lty = species)) +
-  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.15, lwd = 0) +
-  geom_line(size=1.2) +
-  geom_line(data=as_tibble(dhwGlmerRes), size=1.2)+
-  #geom_ribbon(data=as_tibble(dhwGlmerRes),aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.15, lwd = 0) +
-  scale_y_continuous(labels = scales::percent) +
-  labs(x = "Peak DHW", y = "Mortality") +
-  theme_classic() +
-  scale_color_brewer(palette = "Set2")
+  geom_line(data = as_tibble(dhwGlmerRes), aes(y = prob, color = species),  lty = 2) +
+  geom_line(data = as_tibble(resDhwGlm), aes(y = prob, color = species), lty = 1)
 
 ```
+
 # Estimate ED50s/ED95s
 ```{r}
 #estimate ed50s/ed95s comebine predicted values
@@ -956,23 +449,28 @@ resDhwMods <- bind_rows(resDhwGlm, dhwGlmerRes)
 #calculate ed50s from package
 library(ed50)
 estimatesEd50 <- resDhwMods%>%
-  group_by(type, species)%>%
+  group_by(type, coral_type, species) %>%
   reframe(ed50=estimate(cummaxdhw, prob, confidence = 0.95, method = "Logistic"))
 
 ed50s <- estimatesEd50%>%
-  group_by(type, species)%>%
+  group_by(type, coral_type, species)%>%
   slice(2)
+
+ed50s <- ed50s %>% unnest(ed50)
+
+
 #estimate ed95 through some math. Could get closer with different intervals
 ed95 <- resDhwMods%>%
-  mutate(closeness=abs(0.95-asymp.UCL))%>%
-  group_by(type, species)%>%
+  mutate(closeness=abs(0.95-prob))%>%
+  group_by(type, coral_type, species)%>%
   slice_min(closeness)
 
 
 # plot Just fitted curves with labels for each ed value by species
 library(ggrepel)
 resDhwMods %>%
-  ggplot(aes(x = cummaxdhw, y = prob, color = species, lty = type)) +
+  ggplot(aes(x = cummaxdhw, y = prob, lty = type)) +
+  facet_wrap(~species + coral_type) +
   geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.15, lwd = 0) +
   geom_line(size=1.2) +
  
@@ -992,6 +490,7 @@ library(ggtext)
 resDhwMods %>%
   filter(type=="glmer")%>%
   ggplot(aes(x = cummaxdhw, y = prob, color = species)) +
+  facet_wrap(~coral_type + species) +
   geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.15, lwd = 0) +
   geom_line(size=1.2) +
  
@@ -1001,7 +500,7 @@ resDhwMods %>%
   scale_color_brewer(palette = "Set2", name="Species", labels=c("*A. cervicornis*", "*A. palmata*"))+
   geom_label(data=filter(ed50s, type=="glmer"), aes(label=round(as.numeric(ed50), 2), x=as.numeric(ed50), y=0.5), show.legend = F, size=6, nudge_x = c(3, -1), nudge_y = 0.05)+
   geom_label(data=filter(ed95, type=="glmer"), aes(label=round(as.numeric(cummaxdhw), 2), x=as.numeric(cummaxdhw), y=0.95), show.legend = F, size=6, nudge_y = -0.05, nudge_x = c(3, -1.5))+
-  theme(legend.position = c(0.75, 0.25), legend.text = element_markdown())
+  theme(legend.position = "none", legend.text = element_markdown())
 
 #ggsave("outputs/mortalityDhwEstimates_glmm.png", width=8)
 
