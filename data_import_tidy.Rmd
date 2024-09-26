@@ -463,5 +463,5 @@ df <- left_join(df, dhws, by = c("siteclust", "lon", "lat", "date")) %>%
 
 ```{r}
 # Save integrated dataset to file
-write_csv(df, file = "FLAcro23_data_processed.csv")
+write_csv(df, file = "data/processed/FLAcro23_data_processed.csv")
 ```
