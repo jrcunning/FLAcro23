@@ -660,7 +660,7 @@ glmer_fitted_mort <- res.glmer.f %>%
 
 
 #Make wide mortality table by subregion for each species
-mortSpecTableWide <- glmer_fitted_mort%>%
+mortSpecTableWide <- glmer_fitted_mort %>%
   pivot_wider(id_cols = subregion, names_from = c(species, date), values_from = prob)
 
 # Plot fitted lines over raw data
@@ -689,7 +689,7 @@ emm1001 <- emmeans(mod.glm, specs = "species", by = c("date", "subregion"),
                at = list(date = as.Date("2023-10-01")))
 rbind(contrast(emm1001, "pairwise"))
 
-# On April 1st, 2024
+# On March 1st, 2024
 emm0301 <- emmeans(mod.glm, specs = "species", by = c("date", "subregion"),
                at = list(date = as.Date("2024-03-01")))
 rbind(contrast(emm0301, "pairwise"))
@@ -711,6 +711,23 @@ BIC(mod.glmer, mod.glmer.nospp)
 
 # Tests show that species as a predictor significantly improves the model fit
 # Species responses are different, but not by much
+
+
+# Test wild vs. outplant
+# Fit glmer model with wild/outplant as factor
+dff <- df %>% filter(coral_type != "Wild/Outplant")
+mod.glmer.f <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled * species * coral_type + (1| siteclust/species),
+                   family = binomial,
+                   data = dff)
+# On October 1st, 2023
+emm1001 <- emmeans(mod.glmer.f, specs = "coral_type", by = c("date_scaled", "subregion", "species"),
+               at = list(date_scaled = as.numeric(as.Date("2023-10-01"))))
+rbind(contrast(emm1001, "pairwise"))
+# On March 1st, 2024
+emm0301 <- emmeans(mod.glmer.f, specs = "coral_type", by = c("date_scaled", "subregion", "species"),
+               at = list(date_scaled = as.numeric(as.Date("2024-03-01"))))
+rbind(contrast(emm0301, "pairwise"))
+
 ```
 
 # Model all Acropora together, even though species are significantly different (but not by much)
@@ -893,15 +910,15 @@ resDhwGlm <- emmeans(modDhwGlm, specs = "cummaxdhw", by = "species", type = "res
   mutate(type="glm")
 
 #model species vs dhw for GLMM
-mod.dhw.glmer <- glmer(cbind(n_dead, n_alive) ~ cummaxdhw * species +(1|subregion),# (1|subregion/siteclust),
+mod.dhw.glmer <- glmer(cbind(n_dead, n_alive) ~ cummaxdhw * species * coral_type + (1|subregion),# (1|siteclust/species),
                    family = binomial,
-                   data = df)
+                   data = dff)
 
 summary(mod.dhw.glmer)
 
 
 #predict data for GLMM
-dhwGlmerRes <- emmeans(mod.dhw.glmer, specs = "cummaxdhw", by = "species", type = "response", interval = "prediction",
+dhwGlmerRes <- emmeans(mod.dhw.glmer, specs = "cummaxdhw", by = c("species", "coral_type"), type = "response", interval = "prediction",
                at = list(cummaxdhw = seq(0, 22, 0.1))) %>%
   as_tibble(.)%>%
   mutate(type="glmer")
@@ -914,7 +931,7 @@ ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
   scale_y_continuous(labels = scales::percent) +
   labs(x = "Peak DHW", y = "Mortality") +
   theme_classic(base_size=16) +
-  geom_line(data = as_tibble(dhwGlmerRes), aes(y = prob, lty = species))
+  geom_line(data = as_tibble(dhwGlmerRes), aes(y = prob, color = species, lty = coral_type))
 
 # plot Just fitted curves
 as_tibble(resDhwGlm) %>%
