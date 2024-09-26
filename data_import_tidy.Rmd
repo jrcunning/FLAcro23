@@ -362,6 +362,8 @@ nc.data <- tibble(file = nc.files) %>%
 out <- nc.data %>% dplyr::select(date, coords, dhw) %>% unnest() %>%
   mutate(date = as_date(date, format = "%Y%m%d"))
 
+write_csv(out, file = "data/processed/DHW_siteclusts.csv")
+
 # Check that all sites got DHW values
 dhws <- out %>%
   group_by(siteclust) %>%
