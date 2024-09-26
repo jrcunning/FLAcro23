@@ -439,6 +439,11 @@ fixed[match(matches$siteclust, fixing$siteclust), "data"] <- fixing[match(matche
 
 # Unnest fixed output
 outfixed <- fixed %>% unnest()
+# Get mean DHW for each subregion and write to file
+dhwmean <- outfixed %>%
+  group_by(subregion, date) %>%
+  summarize(dhw = mean(dhw))
+write_csv(dhwmean, file = "data/processed/MeanDHW_subregions.csv")
 #outfixed %>% filter(is.na(dhw))
 dhws <- outfixed %>% dplyr::select(siteclust, lon, lat, date, dhw)
 
