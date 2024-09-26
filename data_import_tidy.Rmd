@@ -320,6 +320,8 @@ hc <- hclust(as.dist(dist_mat), method = "complete")
 clusters <- cutree(hc, h = 2000)  # Cluster based on 2000m threshold
 df1$siteclust <- as.character(clusters)
 
+write_csv(df1, file = "data/processed/FLAcro23_data_processed_sites.csv")
+
 # ggplot(df, aes(x = lon, y = lat, color = as.factor(siteclust))) +
 #   geom_point()
 
