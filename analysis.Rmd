@@ -17,6 +17,8 @@ library(geosphere)
 library(readxl)
 library(tidyverse)
 library(cowplot)
+library(lubridate)
+library(ggthemes)
 ```
 
 # Import coral mortality data
@@ -102,6 +104,36 @@ um <- um0 %>%
   dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
          n_alive, n_dead, n_geno)
 
+#bnp data
+bnp0 <- read_xlsx("FL_Acropora data_NPS-BNP.xlsx", sheet = "NPS BNP data", n_max = 20)
+bnp <- bnp0%>%
+  #data cleaning
+  mutate(Date=case_when(Date=="Mar24"~ymd("2024/3/1"),
+                        Date=="May24"~ymd("2024/05/1")),
+         `N (surviving colonies)`=as.numeric(str_extract(`N (surviving colonies)`, "[0-9]+")),
+         `N (colonies)`=as.numeric(str_extract(`N (colonies)`, "[0-9]+")),
+         `N (Genotypes, if known)`=case_when(str_detect(`N (Genotypes, if known)`, "pend|unk")~NA,
+                                                        TRUE~as.numeric(`N (Genotypes, if known)`)),
+         `Wild/Outplant`=ifelse(str_detect(`Wild/Outplant`, "outplant"), "Outplant", "Wild"),
+         `Spp`=str_to_upper(`Spp`)) %>%
+  
+  
+  #mutates
+  mutate(
+    data_provider = "bnp",
+    site = Site,
+    lat = Latitude,
+    lon = Longitude,
+    date = as_date(Date),
+    species = `Spp`,
+    coral_type = `Wild/Outplant`,
+    n_alive = `N (surviving colonies)`,
+    n_dead = `N (colonies)` - `N (surviving colonies)`,
+    n_geno = `N (Genotypes, if known)`
+  ) %>%
+  
+  dplyr::select(data_provider, site, lat, lon, date, species, coral_type,
+         n_alive, n_dead, n_geno)
 
 ## FWC data
 fwc0 <- read_xlsx("FL_APAL_Summary Data.xlsx", sheet = "FWC", 
@@ -238,7 +270,7 @@ mir <- mir0 %>%
 
 # Combine all data
 df0 <- bind_rows(
-  crf, dw, fwc, mml, nsu, um, usgs, dtac, mir
+  crf, dw, fwc, mml, nsu, um, usgs, dtac, mir, bnp
 ) %>%
   mutate(n_total = n_dead + n_alive,
          pct_mort = n_dead / n_total)
@@ -274,7 +306,7 @@ df1 <- df0 %>%
 
 # -----------
 # Assign Subregions based on DRM subregions
-load("~/Projects/DRM2024/output/2023.RData")
+load("../DRM2024/output/2023.RData")
 subregions <- distinct(df23, Site, Latitude, Longitude, Subregion) %>%
   dplyr::select(site = Site, lat = Latitude, lon = Longitude, subregion = Subregion) %>%
   drop_na(lat)
@@ -328,7 +360,7 @@ df <- df1 %>%
 # Add DHW data for all site clusters
 ```{r add_DHW}
 # Import all NetCDF files for each date from June 1 through December 31, 2023
-nc.files <- list.files("~/Projects/DRM2024/data/dhw/2023", pattern = "*.nc$", full.names = TRUE)
+nc.files <- list.files("../DRM2024/data/dhw/2023", pattern = "*.nc$", full.names = TRUE)
 
 # Get coordinate box for Florida Reef Tract
 #nc <- nc_open("data/dhw/ct5km_dhw_v3.1_20230901.nc")
@@ -343,7 +375,7 @@ nc.files <- list.files("~/Projects/DRM2024/data/dhw/2023", pattern = "*.nc$", fu
 # Get DRM survey site coordinates
 # Import data
 sites <- df %>%
-  distinct(siteclust, subregion, lon, lat)
+  dplyr::distinct(siteclust, subregion, lon, lat)
 
 # Open all DHW NCDF4 files
 library(ncdf4) # package for netcdf manipulation
@@ -461,6 +493,11 @@ df <- left_join(df, dhws, by = c("siteclust", "lon", "lat", "date")) %>%
   mutate(subregion = factor(subregion, levels = levels(sites$subregion)))
 ```
 
+```{r}
+# Save integrated dataset to file
+write_csv(df, file = "FLAcro23_data_processed.csv")
+```
+
 # Map surveys over space and time
 
 ```{r map_data}
@@ -540,6 +577,8 @@ mapfig
   theme_classic() +
   theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
   labs(x = "Date", y = "Percent mortality"))
+
+
 ```
 
 ## Fit generalized linear models (and mixed models)
@@ -548,10 +587,16 @@ mapfig
 # Fit model using glm
 mod.glm <- glm(cbind(n_dead, n_alive) ~ subregion * date * species, 
                family = "binomial", data = df)
+mod.glmQuasi <- glm(cbind(n_dead, n_alive) ~ subregion * date * species, 
+               family = "quasibinomial", data = df)
 mod.glm2 <- glm(cbind(n_dead, n_alive) ~ subregion + date + species + subregion:date:species, 
                 family = "binomial", data = df)
+
+mod.glm2.quasi <- glm(cbind(n_dead, n_alive) ~ subregion + date + species + subregion:date:species, 
+                family = "quasibinomial", data = df)
 # AIC(mod.glm, mod.glm2)
 # BIC(mod.glm, mod.glm2)
+AIC(mod.glm2.quasi, mod.glmQuasi)
 
 # Fit model using glmer (sites as random factors)
 # Rescale the date predictor
@@ -575,7 +620,7 @@ res.glmer <- emmeans(mod.glmer, specs = c("date_scaled", "subregion", "species")
                at = list(date_scaled = seq(-2.168304, 2.380493, 0.014)))
 datesd <- sd(as.numeric(df$date))
 datemean <- mean(as.numeric(df$date))
-res.glmer <- as.tibble(res.glmer) %>% mutate(date = as.Date(date_scaled * datesd + datemean))
+res.glmer <- as.tibble(res.glmer) %>% mutate(date = as_date(date_scaled * datesd + datemean))
 
 # Filter fitted values to just the range of observed data for each species/subregion
 date_ranges <- df %>%
@@ -609,8 +654,14 @@ glm_fitted_mort <- res.glm.f %>%
 
 glmer_fitted_mort <- res.glmer.f %>%
   ungroup() %>%
-  filter(date %in% c("2023-10-01", "2024-03-01")) %>%
+  mutate(date=ymd(date))%>%
+  filter(date %in% c(ymd("2023-10-01"), ymd("2024-03-01"))) %>%
   dplyr::select(subregion, species, date, prob)
+
+
+#Make wide mortality table by subregion for each species
+mortSpecTableWide <- glmer_fitted_mort %>%
+  pivot_wider(id_cols = subregion, names_from = c(species, date), values_from = prob)
 
 # Plot fitted lines over raw data
 mort +
@@ -619,6 +670,8 @@ mort +
   geom_vline(xintercept = c(as.Date("2023-10-01"), as.Date("2024-03-01")), lwd = 0.25, color = "gray70") +
   geom_text(data = glm_fitted_mort, aes(y = prob, label = scales::label_percent()(round(prob, 2)))) +
   geom_text(data = glmer_fitted_mort, aes(y = prob, label = scales::label_percent()(round(prob, 2))), fontface = "italic")
+
+#ggsave("outputs/acerApalRegionMort.png", width=10, height=12)
 
 # ggplot(as.tibble(res), aes(x = date, y = prob)) +
 #   geom_line() +
@@ -636,10 +689,10 @@ emm1001 <- emmeans(mod.glm, specs = "species", by = c("date", "subregion"),
                at = list(date = as.Date("2023-10-01")))
 rbind(contrast(emm1001, "pairwise"))
 
-# On April 1st, 2024
+# On March 1st, 2024
 emm0301 <- emmeans(mod.glm, specs = "species", by = c("date", "subregion"),
                at = list(date = as.Date("2024-03-01")))
-rbind(contrast(emm0401, "pairwise"))
+rbind(contrast(emm0301, "pairwise"))
 
 # species is significant.... effect sizes aren't that big though.
 
@@ -658,6 +711,23 @@ BIC(mod.glmer, mod.glmer.nospp)
 
 # Tests show that species as a predictor significantly improves the model fit
 # Species responses are different, but not by much
+
+
+# Test wild vs. outplant
+# Fit glmer model with wild/outplant as factor
+dff <- df %>% filter(coral_type != "Wild/Outplant")
+mod.glmer.f <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled * species * coral_type + (1| siteclust/species),
+                   family = binomial,
+                   data = dff)
+# On October 1st, 2023
+emm1001 <- emmeans(mod.glmer.f, specs = "coral_type", by = c("date_scaled", "subregion", "species"),
+               at = list(date_scaled = as.numeric(as.Date("2023-10-01"))))
+rbind(contrast(emm1001, "pairwise"))
+# On March 1st, 2024
+emm0301 <- emmeans(mod.glmer.f, specs = "coral_type", by = c("date_scaled", "subregion", "species"),
+               at = list(date_scaled = as.numeric(as.Date("2024-03-01"))))
+rbind(contrast(emm0301, "pairwise"))
+
 ```
 
 # Model all Acropora together, even though species are significantly different (but not by much)
@@ -700,7 +770,7 @@ res.all.glmer.f <- as.tibble(res.all.glmer) %>%
   mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date_scaled > start))) %>% #, date < end))) %>%
   dplyr::select(subregion, data.f) %>%
   unnest(data.f) %>%
-  mutate(date = as.Date(date_scaled * datesd + datemean))
+  mutate(date = as_date(date_scaled * datesd + datemean))
 
 as.tibble(res.all.glm.f) %>%
   ggplot(aes(x = date, y = prob, color = subregion)) +
@@ -713,7 +783,7 @@ as.tibble(res.all.glm.f) %>%
 
 # Pull out Oct1 and Mar1 mortality for each region using GLM
 out.glm <- as.tibble(res.all.glm.f) %>%
-  filter(date %in% c("2023-10-01", "2024-03-01"))
+  filter(date %in% c(ymd("2023-10-01"), ymd("2024-03-01")))
 
 out.glm %>%
   dplyr::select(subregion, date, prob) %>%
@@ -722,7 +792,12 @@ out.glm %>%
 
 # GLMER
 out.glmer <- as.tibble(res.all.glmer.f) %>%
-  filter(date %in% c("2023-10-01", "2024-03-01"))
+  mutate(date=ymd(date))%>%
+  filter(date %in% c(ymd("2023-10-01"), ymd("2024-03-01")))
+
+##Make table for mortality for each species without subregion
+subregionTableRegion <- out.glmer%>%
+  pivot_wider(id_cols = subregion, names_from = date, values_from = prob)
 
 out.glmer %>%
   dplyr::select(subregion, date, prob) %>%
@@ -730,6 +805,13 @@ out.glmer %>%
   knitr::kable(caption = "Mortality from GLMER")
 
 ```
+## Each species by date and region
+```{r}
+# Fit model using glmer (sites as random factors)
+mod.all.glmer <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled + (1|siteclust),  # OR (1|siteclust/species)
+                       family = binomial, data = df)
+```
+
 
 # Put percent mort on map
 ```{r}
@@ -739,6 +821,7 @@ mapfig2 <- basemap +
   geom_point(data = dfs, aes(x = lon, y = lat, color = subregion, size = maxn_cat, shape = species), alpha = 0.4) +
   coord_sf(xlim = c(-83.5, -79), ylim = c(23.6, 26.5), expand = FALSE) +
   theme(legend.position = "none")
+mapfig2
 
 
 # Add DHWs to map
@@ -810,35 +893,204 @@ outmapbars <- ggdraw() +
 
 (outmap3 <- outmapbars +
   draw_plot(dhwfig, height = 0.48, width = 0.4, x = 0.1, y = 0.445))
-ggsave("outmap3.png", plot = outmap3, width = 183, height = 140, units = "mm")
+#ggsave("outmap3.png", plot = outmap3, width = 183, height = 140, units = "mm")
 
 ```
 
 # Plot mortality vs. dhw
 ```{r}
+#model species vs dhw for GLM
+modDhwGlm <- glm(cbind(n_dead, n_alive) ~ cummaxdhw * species, family = "binomial", data = df)
+summary(modDhwGlm)
 
-mod <- glm(cbind(n_dead, n_alive) ~ cummaxdhw * species, family = "binomial", data = df)
-res <- emmeans(mod, specs = "cummaxdhw", by = "species", type = "response", interval = "prediction",
-               at = list(cummaxdhw = seq(0, 22, 0.1)))
+#predict data for GLM
+resDhwGlm <- emmeans(modDhwGlm, specs = "cummaxdhw", by = "species", type = "response", interval = "prediction",
+               at = list(cummaxdhw = seq(0, 22, 0.1))) %>%
+  as_tibble(.) %>%
+  mutate(type="glm")
+
+#model species vs dhw for GLMM
+mod.dhw.glmer <- glmer(cbind(n_dead, n_alive) ~ cummaxdhw * species * coral_type + (1|subregion),# (1|siteclust/species),
+                   family = binomial,
+                   data = dff)
+
+summary(mod.dhw.glmer)
+
+
+#predict data for GLMM
+dhwGlmerRes <- emmeans(mod.dhw.glmer, specs = "cummaxdhw", by = c("species", "coral_type"), type = "response", interval = "prediction",
+               at = list(cummaxdhw = seq(0, 22, 0.1))) %>%
+  as_tibble(.)%>%
+  mutate(type="glmer")
 
 
 # Percent mortality w/ maxDHW
 ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
-  geom_point(aes(size = log10(n_total), shape = species, color = subregion), alpha = 0.3) +
+  #geom_point(aes(size = log10(n_total), shape = species, color = subregion), alpha = 0.3) +
   #scale_size_discrete(range = c(1,4)) +
   scale_y_continuous(labels = scales::percent) +
   labs(x = "Peak DHW", y = "Mortality") +
-  theme_classic() +
-  geom_line(data = as_tibble(res), aes(y = prob, lty = species))
+  theme_classic(base_size=16) +
+  geom_line(data = as_tibble(dhwGlmerRes), aes(y = prob, color = species, lty = coral_type))
 
-# Just fitted curves
-as_tibble(res) %>%
+# plot Just fitted curves
+as_tibble(resDhwGlm) %>%
   ggplot(aes(x = cummaxdhw, y = prob, color = species, lty = species)) +
   geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.15, lwd = 0) +
-  geom_line() +
+  geom_line(size=1.2) +
+  geom_line(data=as_tibble(dhwGlmerRes), size=1.2)+
+  #geom_ribbon(data=as_tibble(dhwGlmerRes),aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.15, lwd = 0) +
   scale_y_continuous(labels = scales::percent) +
   labs(x = "Peak DHW", y = "Mortality") +
-  theme_classic() 
+  theme_classic() +
+  scale_color_brewer(palette = "Set2")
 
+```
+# Estimate ED50s/ED95s
+```{r}
+#estimate ed50s/ed95s comebine predicted values
+resDhwMods <- bind_rows(resDhwGlm, dhwGlmerRes)
+
+#estimate ed50s https://rdrr.io/cran/ed50/man/estimate.html
+#https://rdrr.io/cran/ed50/src/R/estimate.R
+#calculate ed50s from package
+library(ed50)
+estimatesEd50 <- resDhwMods%>%
+  group_by(type, species)%>%
+  reframe(ed50=estimate(cummaxdhw, prob, confidence = 0.95, method = "Logistic"))
+
+ed50s <- estimatesEd50%>%
+  group_by(type, species)%>%
+  slice(2)
+#estimate ed95 through some math. Could get closer with different intervals
+ed95 <- resDhwMods%>%
+  mutate(closeness=abs(0.95-asymp.UCL))%>%
+  group_by(type, species)%>%
+  slice_min(closeness)
+
+
+# plot Just fitted curves with labels for each ed value by species
+library(ggrepel)
+resDhwMods %>%
+  ggplot(aes(x = cummaxdhw, y = prob, color = species, lty = type)) +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.15, lwd = 0) +
+  geom_line(size=1.2) +
+ 
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Peak DHW", y = "Mortality") +
+  theme_classic(base_size = 16) +
+  scale_color_brewer(palette = "Set2")+
+  geom_label_repel(data=ed50s, aes(label=round(as.numeric(ed50), 2), x=as.numeric(ed50), y=0.5))+
+  geom_label_repel(data=ed95, aes(label=round(as.numeric(cummaxdhw), 2), x=as.numeric(cummaxdhw), y=0.95))
+
+#ggsave("outputs/mortalityDhwEstimates.png", width=8)
+```
+
+```{r plot just glmm}
+#plot just GLMM values for each species 
+library(ggtext)
+resDhwMods %>%
+  filter(type=="glmer")%>%
+  ggplot(aes(x = cummaxdhw, y = prob, color = species)) +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.15, lwd = 0) +
+  geom_line(size=1.2) +
+ 
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Peak DHW", y = "Mortality") +
+  theme_classic(base_size = 16) +
+  scale_color_brewer(palette = "Set2", name="Species", labels=c("*A. cervicornis*", "*A. palmata*"))+
+  geom_label(data=filter(ed50s, type=="glmer"), aes(label=round(as.numeric(ed50), 2), x=as.numeric(ed50), y=0.5), show.legend = F, size=6, nudge_x = c(3, -1), nudge_y = 0.05)+
+  geom_label(data=filter(ed95, type=="glmer"), aes(label=round(as.numeric(cummaxdhw), 2), x=as.numeric(cummaxdhw), y=0.95), show.legend = F, size=6, nudge_y = -0.05, nudge_x = c(3, -1.5))+
+  theme(legend.position = c(0.75, 0.25), legend.text = element_markdown())
+
+#ggsave("outputs/mortalityDhwEstimates_glmm.png", width=8)
+
+#with lines
+resDhwMods %>%
+  filter(type=="glmer")%>%
+  ggplot(aes(x = cummaxdhw, y = prob, color = species)) +
+  geom_segment(data=NULL, aes(x=c(0), xend=c(10), y=c(0.5), yend=c(0.5)), inherit.aes = F, linetype="dashed", color= "#FB6A4A", size=1.2)+
+  geom_segment(data=NULL, aes(x=c(0), xend=c(20), y=c(0.95), yend=c(0.95)), inherit.aes = F, linetype="dashed", color= "#FB6A4A", size=1.2)+
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL), alpha = 0.15, lwd = 0) +
+  geom_line(size=1.2) +
+ 
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Peak DHW", y = "Mortality") +
+  theme_classic(base_size = 16) +
+  scale_color_brewer(palette = "Set2", name="Species", labels=c("*A. cervicornis*", "*A. palmata*"))+
+  geom_label(data=filter(ed50s, type=="glmer"), aes(label=round(as.numeric(ed50), 2), x=as.numeric(ed50), y=0.5), show.legend = F, size=6, nudge_x = c(3, -1), nudge_y = 0.05)+
+  geom_label(data=filter(ed95, type=="glmer"), aes(label=round(as.numeric(cummaxdhw), 2), x=as.numeric(cummaxdhw), y=0.95), show.legend = F, size=6, nudge_y = -0.05, nudge_x = c(3, -1.5))+
+  theme(legend.position = c(0.75, 0.25), legend.text = element_markdown())
+
+
+#ggsave("outputs/mortalityDhwEstimates_glmm_dottedLines.png", width=8)
+
+```
+
+Add in total percent mortality model
+```{r}
+# Fit model using glmer (sites as random factors)
+mod.glmer.noRegion.noSpec <- glmer(cbind(n_dead, n_alive) ~ date_scaled + (1|subregion/siteclust),  # OR (1|siteclust/species)
+                       family = binomial, data = df)
+
+mod.glmer.noRegion.Spec <- df%>%
+  #filter(subregion!="Broward-Miami")%>%
+  glmer(cbind(n_dead, n_alive) ~ species*date_scaled + (1|subregion/siteclust),  # OR (1|siteclust/species)
+                       family = binomial, data = .)
+
+
+#species matters so keep
+date_ranges_scaled_nosub <- df %>%
+  group_by(species) %>%
+  summarize(start = min(date_scaled), end = max(date_scaled))
+
+# Fitted values for glmer
+res.all.glmer.noRegion <- emmeans(mod.glmer.noRegion.Spec, specs = c("date_scaled", "species"), type = "response",
+                         at = list(date_scaled = seq(-2.699, 2.167, 0.015)))
+
+#
+res.all.glmer.noRegion.spec <- as.tibble(res.all.glmer.noRegion ) %>%
+  group_by(species) %>%
+  nest() %>%
+  left_join(date_ranges_scaled_nosub) %>%
+  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date_scaled > start))) %>% #, date < end))) %>%
+  dplyr::select(species, data.f) %>%
+  unnest(data.f) %>%
+  mutate(date = as_date(date_scaled * datesd + datemean))
+
+
+#get output
+out.glmer.total.Species.noRegion <- as.tibble(res.all.glmer.noRegion.spec ) %>%
+  mutate(date=ymd(date))%>%
+  filter(date %in% c(ymd("2023-10-01"), ymd("2024-03-01")))
+
+wideSpeciesTotalMortality <- out.glmer.total.Species.noRegion %>%
+  dplyr::select(species, date, dead = prob, asymp.LCL, asymp.UCL) %>%
+  mutate(alive = 1 - dead) %>%
+  pivot_longer(c(dead, alive), names_to = "cat", values_to = "val") 
+
+#plot  total mortality simliar to map figure 
+ggplot(wideSpeciesTotalMortality, aes(x=factor(date)))+
+             geom_col(aes(y = val, fill = cat), color = "black", lwd = 0.1) +
+             geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0.1, width = 0.1) +
+  facet_wrap(~species)+
+  geom_text(aes(label=round(prob, 2)), y= 0.75, data=out.glmer.total.Species.noRegion, hjust=0.5)+
+             #geom_text(aes(x = 1.5, y = 1, label = paste(subregion2, "\n", "n =", maxtot), color = subregion2), vjust = -0.25, size = 2) +
+             scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25), labels = c("0%", "", "50%", "", "100%")) +
+             scale_x_discrete(labels = c(expression(italic(t)[1]), expression(italic(t)[2]))) +
+             scale_color_manual(values = c("#F8766D","#B79F00","#00BA38","#00BFC4","#619CFF","#F564E3"), drop = FALSE) +
+             scale_fill_manual(values = c("#a6d96a", "#de2d26")) +
+             labs(x = "", y = "") +
+             coord_cartesian(clip = 'off') +
+             theme_classic(base_size = 18) +
+             theme(legend.position = "none", 
+                   axis.line = element_line(size = 0.1),
+                   axis.ticks = element_line(size = 0.1),
+                   plot.background = element_blank(), 
+                   panel.background = element_blank(),
+                   axis.text.x = element_text(angle = 0, hjust = c(0.5, 0.5)),
+                   axis.text.y = element_text(size = 5))
+
+#ggsave("outputs/speciesTotalMort.png")
 ```
 
