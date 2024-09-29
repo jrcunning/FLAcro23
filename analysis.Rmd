@@ -24,9 +24,7 @@ df <- read_csv("data/processed/FLAcro23_data_processed.csv") %>%
                                                   "Middle Keys", "Lower Keys", "Tortugas--Dry Tortugas NP")))
 ```
 
-
 # Map surveys over space and time
-
 ```{r map_data}
 # Get the maximum number of ramets of each species ever surveyed (on one date) at a siteclust
 # Get the sum of max total counted in each subregion
@@ -91,7 +89,6 @@ mapfig
 ```
 
 # Analyze percent mortality over time in each subregion
-
 ## Plot mortality data
 ```{r plot_mort, fig.width = 8, fig.height = 9}
 # Plot Percent mortality over time
@@ -187,7 +184,7 @@ mortSpecTableWide <- glmer_fitted_mort %>%
 knitr::kable(mortSpecTableWide)
 ```
 
-# Response differences between APAL and ACER - DELETE?
+## Response differences between APAL and ACER - DELETE?
 ```{r apal_vs_acer, eval = FALSE, include = FALSE}
 
 # Tests are producing odds ratios with extremely high SE's, yet low p-values... need to investigate further
@@ -238,7 +235,7 @@ rbind(contrast(emm0301, "pairwise"))
 
 ```
 
-# Model all Acropora together, even though species are significantly different (but not by much)
+## Model all Acropora together, even though species are significantly different (but not by much)
 ```{r}
 # Fit model using glm
 mod.all.glm <- glm(cbind(n_dead, n_alive) ~ subregion * date, 
@@ -304,13 +301,13 @@ out.glmer %>%
   knitr::kable(caption = "Mortality from GLMER")
 
 ```
+
 ## Each species by date and region
 ```{r}
 # Fit model using glmer (sites as random factors)
 mod.all.glmer <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled + (1|siteclust),  # OR (1|siteclust/species)
                        family = binomial, data = df)
 ```
-
 
 # Put percent mort on map
 ```{r}
@@ -396,7 +393,7 @@ outmapbars <- ggdraw() +
 ggsave("outmap3.png", plot = outmap3, width = 183, height = 140, units = "mm")
 ```
 
-# Plot mortality vs. dhw
+# Mortality vs. DHW -- ACER vs. APAL and Wild vs. Outplant
 ```{r}
 dff <- df %>% filter(coral_type != "Wild/Outplant")
 
@@ -416,15 +413,19 @@ resDhwGlm <- emmeans(modDhwGlm, specs = "cummaxdhw", by = c("species", "coral_ty
 
 
 # Model species vs dhw for GLMER
-mod.dhw.glmer <- glmer(cbind(n_dead, n_alive) ~ cummaxdhw * species * coral_type + (1|subregion),# (1|siteclust/species),
+mod.dhw.glmer <- glmer(cbind(n_dead, n_alive) ~ cummaxdhw * species + (1|subregion),# (1|siteclust/species),
                    family = binomial,
                    data = dff)
 car::Anova(mod.dhw.glmer)
 #predict data for GLMM
-dhwGlmerRes <- emmeans(mod.dhw.glmer, specs = "cummaxdhw", by = c("species", "coral_type"), type = "response", interval = "prediction",
-               at = list(cummaxdhw = seq(0, 25, 0.1))) %>%
+dhwGlmerRes <- emmeans(mod.dhw.glmer, specs = "cummaxdhw", by = c("species"), type = "response", interval = "prediction",
+               at = list(cummaxdhw = seq(0, 23, 0.1))) %>%
   as_tibble(.)%>%
   mutate(type="glmer")
+
+ggplot(dhwGlmerRes, aes(x = cummaxdhw, y = prob)) +
+  geom_line(aes(color = species)) +
+  geom_point(data = dff, aes(y = pct_mort, color = species))
 
 
 # Percent mortality w/ maxDHW
@@ -437,6 +438,55 @@ mortdhwplot +
   geom_line(data = as_tibble(dhwGlmerRes), aes(y = prob, color = species),  lty = 2) +
   geom_line(data = as_tibble(resDhwGlm), aes(y = prob, color = species), lty = 1)
 
+
+
+
+# Dose-response curves
+library(drc)
+# Fit 4-parameter log-logistic dose-response curves for mortality as function of DHW, by species, with min=0 and max=1
+m3 <- drm(pct_mort ~ cummaxdhw, data = dff, curveid = species, weights = n_total, type = "binomial",
+         logDose = NULL, fct = LL.4(
+           names = c("hill", "min", "max", "ED50"),
+           ## Max parameter is fixed to 1, min is set to 0
+           fixed = c(NA, 0, 1, NA)))
+# Get fitted values and plot
+nd <- expand.grid(species = unique(dff$species), cummaxdhw = seq(0, 23, 0.1))
+pred <- predict(m3, newdata = nd)
+drc.res <- as_tibble(bind_cols(nd, prob = pred))
+ggplot(drc.res, aes(x = cummaxdhw, y = prob)) +
+  geom_line(aes(color = species)) +
+  geom_point(data = dff, aes(y = pct_mort, color = species)) +
+  geom_hline(yintercept = c(0.5, 0.95), lty = 2, lwd = 0.25)
+
+# Get ED50s and ED95s
+eds <- ED(m3, c(0.5, 0.95), type = "absolute", interval = "delta", level = 0.95)
+as.tibble(eds, )
+eds.res <- rownames_to_column(data.frame(eds), "par") %>% as_tibble() %>%
+  separate(par, sep = ":", into = c("par", "species", "level"))
+
+# Plot ED50s and ED95s with confidence intervals
+ggplot(eds.res, aes(x = level, y = Estimate, color = species)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.25) +
+  labs(x = "Mortality level", y = "DHW")
+
+
+# For APAL, model outplant vs. wild
+apal <- subset(dff, species == "APAL")
+# Fit 4-parameter log-logistic dose-response curves for mortality as function of DHW, by species, with min=0 and max=1
+apal.m3 <- drm(pct_mort ~ cummaxdhw, data = apal, curveid = coral_type, weights = n_total, type = "binomial",
+         logDose = NULL, fct = LL.4(
+           names = c("hill", "min", "max", "ED50"),
+           ## Max parameter is fixed to 1, min is set to 0
+           fixed = c(NA, 0, 1, NA)))
+# Get fitted values and plot
+nd <- expand.grid(coral_type = c("Outplant", "Wild"), cummaxdhw = seq(0, 23, 0.1))
+pred <- predict(apal.m3, newdata = nd)
+drc.res <- as_tibble(bind_cols(nd, prob = pred))
+ggplot(drc.res, aes(x = cummaxdhw, y = prob)) +
+  geom_line(aes(color = coral_type)) +
+  geom_point(data = dff, aes(y = pct_mort, color = coral_type)) +
+  geom_hline(yintercept = c(0.5, 0.95), lty = 2, lwd = 0.25)
 ```
 
 # Estimate ED50s/ED95s
