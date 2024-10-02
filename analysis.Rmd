@@ -454,15 +454,18 @@ ggplot(apal.drc.res, aes(x = cummaxdhw, y = prob)) +
 #plot just drc values for each species 
 library(ggtext)
 ggplot(drc.res, aes(x = cummaxdhw, y = Prediction, color = species)) +
-  geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.15, lwd = 0) +
-  geom_line(size=1.2) +
+  geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.2, lwd = 0) +
+  geom_line(size = 1.2) +
+  geom_hline(yintercept = c(0.5, 0.95), linetype = 2, lwd = 0.25) +
   scale_y_continuous(labels = scales::percent) +
   labs(x = "Peak DHW", y = "Mortality") +
   theme_classic(base_size = 16) +
-  scale_color_brewer(palette = "Set2", name="Species", labels=c("*A. cervicornis*", "*A. palmata*"))+
-  geom_label_repel(data=eds.res, aes(label=round(as.numeric(Estimate), 2), x=Estimate, y=as.numeric(level)), 
-                   show.legend = F, size=6, nudge_x = c(3, -1), nudge_y = 0.05)+
-  theme(legend.text = element_markdown())
+  scale_color_brewer(palette = "Set2", name = "", labels = c("*A. cervicornis*", "*A. palmata*")) +
+  geom_text(data=eds.res, aes(label = round(as.numeric(Estimate), 1), x = Estimate, y = as.numeric(level)), 
+                   show.legend = F, size= 6,
+            nudge_x = c(2, 2, -1.5, -2),
+            nudge_y = c(0.05, -0.05, 0.05, 0.05)) +
+  theme(legend.position = c(0.8, 0.15), legend.text = element_markdown())
 
 #ggsave("outputs/mortalityDhwEstimates_glmm.png", width=8)
 ```
