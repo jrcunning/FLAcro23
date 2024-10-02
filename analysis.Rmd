@@ -30,13 +30,13 @@ df <- read_csv("data/processed/FLAcro23_data_processed.csv") %>%
 # Get the sum of max total counted in each subregion
 ## This could underestimate, because diff sites in same siteclust surveyed on same date would be lost
 dfs <- df %>%
-  group_by(siteclust, lat, lon, subregion, species, coral_type) %>%
+  group_by(siteclust, subregion, species, coral_type) %>%
   summarize(maxn = max(n_total)) %>%
   mutate(maxn_cat = cut(maxn, breaks = c(0, 10, 100, 1000, 10000)))
 
 counts1 <- dfs %>%
   group_by(subregion) %>%
-  summarize(maxtot = sum(maxn))
+  summarize(maxtot1 = sum(maxn))
 
 # Get sum treating each original data_provider.sitename as unique site, and get max observed at that site (on any date),
 # and total by subregion
@@ -46,7 +46,9 @@ counts2 <- df1 %>%
   group_by(site, subregion, species, coral_type) %>%
   summarize(maxn = max(n_total)) %>%
   group_by(subregion) %>%
-  summarize(maxtot = sum(maxn))
+  summarize(maxtot2 = sum(maxn))
+
+counts <- full_join(counts1, counts2)
 
 # Plot map of Florida
 # Download satellite map for Florida
@@ -404,7 +406,7 @@ m3 <- drm(pct_mort ~ cummaxdhw, data = dff, curveid = species, weights = n_total
            fixed = c(NA, 0, 1, NA)))
 # Get fitted values and plot
 nd <- expand.grid(species = unique(dff$species), cummaxdhw = seq(0, 23, 0.1))
-pred <- predict(m3, newdata = nd, interval = "confidence", level = 0.95)
+pred <- predict(m3, newdata = nd, interval = "confidence", level = 0.99)
 drc.res <- as_tibble(bind_cols(nd, pred))
 ggplot(drc.res, aes(x = cummaxdhw, y = Prediction)) +
   geom_line(aes(color = species)) +
