@@ -216,33 +216,18 @@ rbind(contrast(emm0301, "pairwise"))
 # No differences between species in any subregion on Mar 1, 2024. (at p=0.01... Biscayne is almost sig at p=0.0291)
 ```
 
-### Model mortality of all Acropora over time, since no species diffs at dates of interest
+### Get mortality of all Acropora over time, since no species diffs at dates of interest
 ```{r}
-# Fit model using glmer (sites as random)
-mod.all.glmer <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled + (1|siteclust),  # OR (1|siteclust/species)
-                       family = binomial, data = df)
+# Get results from glmer for BOTH species combined
+res.glmer <- emmeans(mod.glmer, specs = c("date_scaled", "subregion"), type = "response",
+               at = list(date_scaled = seq(-2.168304, 2.380493, 0.014)))
 
-# Fitted values for glmer
-res.all.glmer <- emmeans(mod.all.glmer, specs = c("date_scaled", "subregion"), type = "response",
-                         at = list(date_scaled = seq(-2.699, 2.167, 0.015)))
+# Backtransform scaled dates to actual dates
+res.glmer <- as.tibble(res.glmer) %>% mutate(date = as_date(date_scaled * datesd + datemean))
 
-# Filter fitted values to just the range of observed data
-date_ranges_scaled <- df %>%
-  group_by(subregion) %>%
-  summarize(start = min(date_scaled), end = max(date_scaled))
-res.all.glmer.f <- as.tibble(res.all.glmer) %>%
-  group_by(subregion) %>%
-  nest() %>%
-  left_join(date_ranges_scaled) %>%
-  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date_scaled > start))) %>% #, date < end))) %>%
-  dplyr::select(subregion, data.f) %>%
-  unnest(data.f) %>%
-  mutate(date = as_date(date_scaled * datesd + datemean))
-
-# Pull out Oct1 and Mar1 mortality for each region using GLMER
-out.glmer <- as.tibble(res.all.glmer.f) %>%
-  mutate(date=ymd(date))%>%
-  filter(date %in% c(ymd("2023-10-01"), ymd("2024-03-01")))
+# Pull out Oct1 and Mar1 mortality for each region
+out.glmer <- res.glmer %>%
+  filter(date %in% c("2023-10-01", "2024-03-01"))
 
 ##Make table for overall Acropora mortality for each subregion
 subregionTableRegion <- out.glmer %>%
@@ -252,7 +237,6 @@ out.glmer %>%
   dplyr::select(subregion, date, prob) %>%
   pivot_wider(values_from = prob, names_from = date) %>%
   knitr::kable(caption = "Mortality from GLMER")
-
 ```
 
 ## Plot mortality over time for all Acropora on map
