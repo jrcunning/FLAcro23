@@ -34,6 +34,11 @@ dfs <- df %>%
   summarize(maxn = max(n_total)) %>%
   mutate(maxn_cat = cut(maxn, breaks = c(0, 10, 100, 1000, 10000)))
 
+dfs2 <- df %>%
+  group_by(lat, lon, subregion, species, coral_type) %>%
+  summarize(maxn = max(n_total)) %>%
+  mutate(maxn_cat = cut(maxn, breaks = c(0, 10, 100, 1000, 10000)))
+
 counts1 <- dfs %>%
   group_by(subregion) %>%
   summarize(maxtot1 = sum(maxn))
@@ -172,14 +177,22 @@ glmer_fitted_mort <- res.glmer.f %>%
   dplyr::select(subregion, species, date, prob)
 
 # Plot model fits over raw data
-mort +
-  geom_line(data = res.glm.f, aes(y = prob)) +
+mortforfig <- mort +
+  #geom_line(data = res.glm.f, aes(y = prob)) +
   geom_line(data = res.glmer.f, aes(y = prob), lty = 2) +
   geom_vline(xintercept = c(as.Date("2023-10-01"), as.Date("2024-03-01")), lwd = 0.25, color = "gray70") +
-  geom_text(data = glm_fitted_mort, aes(y = prob, label = scales::label_percent()(round(prob, 2)))) +
+  #geom_text(data = glm_fitted_mort, aes(y = prob, label = scales::label_percent()(round(prob, 2)))) +
   geom_text(data = glmer_fitted_mort, aes(y = prob, label = scales::label_percent()(round(prob, 2))), fontface = "italic")
 
 #ggsave("outputs/acerApalRegionMort.png", width=10, height=12)
+
+(mortforfig2 <- mortforfig + 
+  facet_grid(species~factor(subregion,
+      levels = rev(levels(subregion)))) +
+  theme(legend.position = "none") +
+  scale_y_continuous(labels = scales::percent) + 
+  labs(x = "", y = "Mortality"))
+ggsave(filename = "mortfig.png", width = 250, height = 100, units = "mm")
 
 # Make wide mortality table by subregion for each species
 mortSpecTableWide <- glmer_fitted_mort %>%
@@ -243,9 +256,16 @@ out.glmer %>%
 ```{r}
 # Alter map extent to create space for adding graphs on top of map
 mapfig2 <- basemap +
-  geom_point(data = dfs, aes(x = lon, y = lat, color = subregion, size = maxn_cat, shape = species), alpha = 0.4) +
+  geom_point(data = dfs2, aes(x = lon, y = lat, color = subregion, size = maxn_cat, shape = species), alpha = 0.4) +
   coord_sf(xlim = c(-83.5, -79), ylim = c(23.6, 26.5), expand = FALSE) +
   theme(legend.position = "none")
+
+# Create points to overlay on satellite map for USF presentation?
+justpoints <- ggplot(dfs2, aes(x = lon, y = lat, color = subregion, size = maxn_cat, shape = species)) +
+  geom_point(alpha = 0.8) +
+  theme_void() +
+  theme(legend.position = "none")
+ggsave(justpoints, filename = "justpoints.png", width = 207, height = 100, units = "mm")
 
 
 # Create DHW plot to draw as inset on map
