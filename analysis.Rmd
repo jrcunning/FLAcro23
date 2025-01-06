@@ -30,7 +30,7 @@ df <- read_csv("data/processed/FLAcro23_data_processed.csv") %>%
 # Get the sum of max total counted in each subregion
 ## This could underestimate, because diff sites in same siteclust surveyed on same date would be lost
 dfs <- df %>%
-  group_by(siteclust, subregion, species, coral_type) %>%
+  group_by(siteclust, lat, lon, subregion, species, coral_type) %>%
   summarize(maxn = max(n_total)) %>%
   mutate(maxn_cat = cut(maxn, breaks = c(0, 10, 100, 1000, 10000)))
 
@@ -46,7 +46,7 @@ counts1 <- dfs %>%
 # Get sum treating each original data_provider.sitename as unique site, and get max observed at that site (on any date),
 # and total by subregion
 ## This could overestimate, because diff data_providers could have surveyed same site/same corals, but
-## here they'd be treated as different sites
+## here they'd be treated as different sites if sites named differently
 counts2 <- df1 %>%
   group_by(site, subregion, species, coral_type) %>%
   summarize(maxn = max(n_total)) %>%
@@ -90,7 +90,7 @@ ggplot(df, aes(x = date, fill = subregion)) +
 
 # # Surveys by max DHW experienced anytime prior to survey
 ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
-  geom_histogram() +
+  geom_histogram(binwidth = 1, closed = "left") +
   theme_classic() +
   labs(y = "Number of sites surveyed")
 ```
@@ -102,7 +102,7 @@ ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
 ### Plot mortality over time data
 ```{r plot_mort, fig.width = 8, fig.height = 9}
 # Plot Percent mortality over time
-(mort <- ggplot(df, aes(x = date, y = pct_mort, fill = subregion)) +
+(mort.pts <- ggplot(df, aes(x = date, y = pct_mort, fill = subregion)) +
   geom_point(aes(size = log10(n_total), shape = coral_type), alpha = 0.4, stroke = 0.2) +
   scale_x_date(date_breaks = "months", date_labels = "%b") +
   scale_shape_manual(values = c(21, 22, 23)) +
@@ -117,21 +117,12 @@ ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
 
 ### Model mortality over time by species and subregion
 ```{r, fig.width = 8, fig.height = 9}
-# Fit model using glm
-mod.glm <- glm(cbind(n_dead, n_alive) ~ subregion * date * species, 
-               family = "binomial", data = df)
-
 # Fit model using glmer (sites as random factors)
 # Rescale the date predictor
 df$date_scaled <- scale(as.numeric(df$date))
 mod.glmer <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled * species + (1| siteclust/species),
                    family = binomial,
                    data = df)
-
-# Get fitted values for glm
-res.glm <- emmeans(mod.glm, specs = c("date", "subregion", "species"), type = "response",
-               at = list(date = seq(min(df$date), max(df$date), by = "days")))
-res.glm <- as.tibble(res.glm)
 
 # Get fitted values for glmer
 res.glmer <- emmeans(mod.glmer, specs = c("date_scaled", "subregion", "species"), type = "response",
@@ -145,14 +136,6 @@ date_ranges <- df %>%
   group_by(species, subregion) %>%
   summarize(start = min(date), end = max(date))
 
-res.glm.f <- as.tibble(res.glm) %>%
-  group_by(species, subregion) %>%
-  nest() %>%
-  left_join(date_ranges) %>%
-  mutate(data.f = pmap(list(data, start, end), function(data, start, end) data %>% filter(date >= start, date <= max(end, as.Date("2024-03-02"))))) %>%
-  dplyr::select(subregion, species, data.f) %>%
-  unnest(data.f)
-
 res.glmer.f <- as.tibble(res.glmer) %>%
   group_by(species, subregion) %>%
   nest() %>%
@@ -164,35 +147,27 @@ res.glmer.f <- as.tibble(res.glmer) %>%
 
 ### Plot mortality over time by species and subregion
 ```{r, fig.width = 8, fig.height = 9}
-# Fitted Percent mortality on October 1, and April 1st from GLM
-glm_fitted_mort <- res.glm.f %>%
-  ungroup() %>%
-  filter(date %in% c("2023-10-01", "2024-03-01")) %>%
-  dplyr::select(subregion, species, date, prob)
-
+# Fitted Percent mortality on October 1, and April 1st from GLMER
 glmer_fitted_mort <- res.glmer.f %>%
   ungroup() %>%
   mutate(date=ymd(date))%>%
   filter(date %in% c(ymd("2023-10-01"), ymd("2024-03-01"))) %>%
   dplyr::select(subregion, species, date, prob)
 
-# Plot model fits over raw data
-mortforfig <- mort +
-  #geom_line(data = res.glm.f, aes(y = prob)) +
+# Plot model fits over raw data, with panels arranged in vertical rows
+mort.fits.v <- mort.pts +
   geom_line(data = res.glmer.f, aes(y = prob), lty = 2) +
   geom_vline(xintercept = c(as.Date("2023-10-01"), as.Date("2024-03-01")), lwd = 0.25, color = "gray70") +
-  #geom_text(data = glm_fitted_mort, aes(y = prob, label = scales::label_percent()(round(prob, 2)))) +
   geom_text(data = glmer_fitted_mort, aes(y = prob, label = scales::label_percent()(round(prob, 2))), fontface = "italic")
 
-#ggsave("outputs/acerApalRegionMort.png", width=10, height=12)
-
-(mortforfig2 <- mortforfig + 
-  facet_grid(species~factor(subregion,
-      levels = rev(levels(subregion)))) +
-  theme(legend.position = "none") +
-  scale_y_continuous(labels = scales::percent) + 
-  labs(x = "", y = "Mortality"))
-ggsave(filename = "mortfig.png", width = 250, height = 100, units = "mm")
+# Another version of the figure with panels arranges in horizontal rows
+# (mort.fits.h <- mort.fits.v + 
+#   facet_grid(species~factor(subregion,
+#       levels = rev(levels(subregion)))) +
+#   theme(legend.position = "none") +
+#   scale_y_continuous(labels = scales::percent) + 
+#   labs(x = "", y = "Mortality"))
+ggsave(mort.fits.v, filename = "mort.fits.v.png", width = 100, height = 250, units = "mm")
 
 # Make wide mortality table by subregion for each species
 mortSpecTableWide <- glmer_fitted_mort %>%
@@ -210,23 +185,20 @@ mod.glmer.nospp <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled + (1| 
                          data = df)
 anova(mod.glmer, mod.glmer.nospp, test = "Chisq")
 BIC(mod.glmer, mod.glmer.nospp)
-### There is an overall effect of species...
+### There is an overall effect of species.
+### Next, test if there is a difference in mortality between species at either of the two dates of interest
 
-# Difference between species on October 1st, 2023
-# get date_scaled for October 1st
+# Get date_scaled for October 1st 2023 and March 1st 2024
 oct1_scaled <- df %>% filter(date == "2023-10-01") %>% pull(date_scaled) %>% unique(.)
-emm1001 <- emmeans(mod.glmer, specs = "species", by = c("date_scaled", "subregion"),
-               at = list(date_scaled = oct1_scaled))
-rbind(contrast(emm1001, "pairwise"))
-# No differences between species in any subregion on Oct 1, 2023
-
-# Difference between species on March 1st, 2024
-# get date_scaled for March 1st
 mar1_scaled <- df %>% filter(date == "2024-03-01") %>% pull(date_scaled) %>% unique(.)
-emm0301 <- emmeans(mod.glmer, specs = "species", by = c("date_scaled", "subregion"),
-               at = list(date_scaled = mar1_scaled))
-rbind(contrast(emm0301, "pairwise"))
-# No differences between species in any subregion on Mar 1, 2024. (at p=0.01... Biscayne is almost sig at p=0.0291)
+
+# Run pairwise test comparing species in each subregion on each date
+emm <- emmeans(mod.glmer, specs = "species", by = c("subregion", "date_scaled"),
+        at = list(date_scaled = c(oct1_scaled, mar1_scaled)))
+rbind(contrast(emm, "pairwise"))
+### No significant differences (at p=0.01) between species in any subregion on either date
+### Note almost significant difference in Biscayne on March 1st 2024 (p=0.0194); however, estimates for ACER on that date
+### are poorly constrained because the latest observations were Nov 10th 2023... So, not concerned about this being a false negative.
 ```
 
 ### Get mortality of all Acropora over time, since no species diffs at dates of interest
@@ -242,10 +214,7 @@ res.glmer <- as.tibble(res.glmer) %>% mutate(date = as_date(date_scaled * datesd
 out.glmer <- res.glmer %>%
   filter(date %in% c("2023-10-01", "2024-03-01"))
 
-##Make table for overall Acropora mortality for each subregion
-subregionTableRegion <- out.glmer %>%
-  pivot_wider(id_cols = subregion, names_from = date, values_from = prob)
-
+## Make table for overall Acropora mortality for each subregion
 out.glmer %>%
   dplyr::select(subregion, date, prob) %>%
   pivot_wider(values_from = prob, names_from = date) %>%
@@ -260,12 +229,12 @@ mapfig2 <- basemap +
   coord_sf(xlim = c(-83.5, -79), ylim = c(23.6, 26.5), expand = FALSE) +
   theme(legend.position = "none")
 
-# Create points to overlay on satellite map for USF presentation?
-justpoints <- ggplot(dfs2, aes(x = lon, y = lat, color = subregion, size = maxn_cat, shape = species)) +
-  geom_point(alpha = 0.8) +
-  theme_void() +
-  theme(legend.position = "none")
-ggsave(justpoints, filename = "justpoints.png", width = 207, height = 100, units = "mm")
+# # Create points to overlay on satellite map for USF presentation?
+# justpoints <- ggplot(dfs2, aes(x = lon, y = lat, color = subregion, size = maxn_cat, shape = species)) +
+#   geom_point(alpha = 0.8) +
+#   theme_void() +
+#   theme(legend.position = "none")
+# ggsave(justpoints, filename = "justpoints.png", width = 207, height = 100, units = "mm")
 
 
 # Create DHW plot to draw as inset on map
