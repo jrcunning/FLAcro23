@@ -1,5 +1,5 @@
 ---
-title: "FLAcro23: Data analysis"
+title: "Analyzing *Acropora* spp. mortality in the 2023 heatwave in Florida"
 author: "Ross Cunning and Rich Karp"
 output: html_document
 date: "2024-01-06"
@@ -9,7 +9,7 @@ date: "2024-01-06"
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, echo = TRUE, cache = TRUE)
 ```
 
-```{r}
+```{r load_libraries}
 library(lme4)
 library(emmeans)
 library(tidyverse)
@@ -17,7 +17,7 @@ library(cowplot)
 library(drc)
 ```
 
-## Import processed data
+# Import processed dataset
 ```{r import_data}
 # Processed data with sites for each data provider
 df1 <- read_csv("data/processed/FLAcro23_data_processed_sites.csv") %>%
@@ -29,7 +29,7 @@ df <- read_csv("data/processed/FLAcro23_data_processed.csv") %>%
                                                   "Middle Keys", "Lower Keys", "Tortugas--Dry Tortugas NP")))
 ```
 
-# Map surveys over space and time
+### Map dataset in space and time
 ```{r map_data}
 # Get the maximum number of ramets of each species ever surveyed (on one date) at a siteclust
 # Get the sum of max total counted in each subregion
@@ -101,10 +101,8 @@ ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
 ```
 
 
+# Spatial and temporal mortality patterns
 
-# Mortality over time
-
-### Plot mortality over time data
 ```{r plot_mort, fig.width = 8, fig.height = 9}
 # Plot Percent mortality over time
 (mort.pts <- ggplot(df, aes(x = date, y = pct_mort, fill = subregion)) +
@@ -116,8 +114,6 @@ ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
   labs(x = "Date", y = "Percent mortality"))
-
-
 ```
 
 ### Model mortality over time by species and subregion
@@ -150,7 +146,6 @@ res.glmer.f <- as.tibble(res.glmer) %>%
   unnest(data.f)
 ```
 
-### Plot mortality over time by species and subregion
 ```{r plot_mod_fits, fig.width = 8, fig.height = 9}
 # Fitted Percent mortality on October 1, and April 1st from GLMER
 glmer_fitted_mort <- res.glmer.f %>%
@@ -163,8 +158,7 @@ glmer_fitted_mort <- res.glmer.f %>%
 (mort.fits.v <- mort.pts +
   geom_line(data = res.glmer.f, aes(y = prob), lty = 2) +
   geom_vline(xintercept = c(as.Date("2023-10-01"), as.Date("2024-03-01")), lwd = 0.25, color = "gray70") +
-  geom_text(data = glmer_fitted_mort, aes(y = prob, label = scales::label_percent()(round(prob, 2))), fontface = "italic") +
-  theme(legend.position = "none"))
+  geom_text(data = glmer_fitted_mort, aes(y = prob, label = scales::label_percent()(round(prob, 2))), fontface = "italic"))
 
 # Another version of the figure with panels arranges in horizontal rows
 # (mort.fits.h <- mort.fits.v + 
@@ -173,7 +167,10 @@ glmer_fitted_mort <- res.glmer.f %>%
 #   theme(legend.position = "none") +
 #   scale_y_continuous(labels = scales::percent) + 
 #   labs(x = "", y = "Mortality"))
-ggsave(mort.fits.v, filename = "mort.fits.v.png", width = 100, height = 250, units = "mm")
+
+# Remove legend for saving
+mort.fits.v2 <- mort.fits.v + theme(legend.position = "none")
+ggsave(mort.fits.v2, filename = "mort.fits.v.png", width = 100, height = 250, units = "mm")
 
 # Make wide mortality table by subregion for each species
 mortSpecTableWide <- glmer_fitted_mort %>%
@@ -182,7 +179,7 @@ mortSpecTableWide <- glmer_fitted_mort %>%
 knitr::kable(mortSpecTableWide)
 ```
 
-### Test for statistical differences in mortality curves between APAL and ACER
+### Test for statistical differences between APAL and ACER
 ```{r apal_vs_acer}
 # Overall difference between species across whole time series
 # reduced model without species -- compare to full model with LRT for significance of species
@@ -207,7 +204,7 @@ rbind(contrast(emm, "pairwise"))
 ### are poorly constrained because the latest observations were Nov 10th 2023... So, not concerned about this being a false negative.
 ```
 
-### Get mortality of all Acropora over time, since no species diffs at dates of interest
+### Estimate mortality across both species
 ```{r mod_allacro}
 # Get results from glmer that includes species, with estimates averaged across species
 # out.glmer <- emmeans(mod.glmer, specs = c("date_scaled", "subregion"), type = "response",
@@ -235,7 +232,7 @@ out.glmer.nospp %>%
   knitr::kable(caption = "Mortality from GLMER")
 ```
 
-## Plot mortality over time for all Acropora on map
+### Plot mortality across both species
 ```{r}
 # Alter map extent to create space for adding graphs on top of map
 mapfig2 <- basemap +
@@ -327,8 +324,7 @@ ggsave("outmap3_nospp_new.png", plot = outmap3, width = 183, height = 140, units
 ```
 
 
-
-# Mortality vs. DHW -- ACER vs. APAL, and APAL Wild vs. Outplant
+# Mortality rates with increasing heat stress
 
 ```{r plot_mort_dhw}
 # Plot all data to visualize
@@ -338,7 +334,7 @@ ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
 ```
 
 
-#### ACER vs. APAL
+### Compare *A. cervicornis* and *A. palmata* mortality response curves
 ```{r acer_vs_apal_mort_dhw}
 # Fit the initial model
 m3 <- drm(
@@ -473,8 +469,11 @@ ggplot(bootstrap_ed_long, aes(x = Difference, fill = Parameter)) +
   theme_minimal()
 ```
 
-#### APAL: Model mortality vs. DHW for outplants and wild colonies
-```{r apal_wild_outplant, attr.error=FALSE}
+### Compare wild vs. outplanted *A. palmata* mortality response curves
+
+There was not enough data for wild *A. cervicornis* to make the same comparison for that species.
+
+```{r apal_wild_outplant}
 # For APAL, model outplant vs. wild
 apal <- filter(df, species == "APAL", coral_type != "Wild/Outplant")
 # Fit 4-parameter log-logistic dose-response curves for mortality as function of DHW, by species, with min=0 and max=1
