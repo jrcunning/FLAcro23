@@ -5,11 +5,16 @@ output: html_document
 date: "2024-01-06"
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, echo = TRUE, cache = TRUE)
+```
+
 ```{r}
 library(lme4)
 library(emmeans)
 library(tidyverse)
 library(cowplot)
+library(drc)
 ```
 
 ## Import processed data
@@ -345,7 +350,7 @@ m3 <- drm(
 )
 
 # Get ED50s and ED95s
-ed_values <- ED(m3, c(0.5, 0.95), type = "absolute", interval = "delta", level = 0.95)
+ed_values <- ED(m3, c(0.5, 0.95), type = "absolute", interval = "delta", level = 0.95, display = FALSE)
 eds.res <- rownames_to_column(data.frame(ed_values), "par") %>% as_tibble() %>%
   separate(par, sep = ":", into = c("par", "species", "level"))
 
@@ -378,7 +383,7 @@ bootstrap_function <- function(iteration) {
   preds <- predict(boot_model, newdata = nd)
   
   # Extract ED50 and ED95 for both species
-  ed_values <- as.tibble(ED(boot_model, c(50, 95), interval = "none"))$Estimate
+  ed_values <- as.tibble(ED(boot_model, c(50, 95), interval = "none", display = FALSE))$Estimate
   ed50_diff <- diff(ed_values[c(1,3)])  # ED50 difference
   ed95_diff <- diff(ed_values[c(2,4)])  # ED95 difference
   
@@ -469,7 +474,7 @@ ggplot(bootstrap_ed_long, aes(x = Difference, fill = Parameter)) +
 ```
 
 #### APAL: Model mortality vs. DHW for outplants and wild colonies
-```{r}
+```{r apal_wild_outplant, attr.error=FALSE}
 # For APAL, model outplant vs. wild
 apal <- filter(df, species == "APAL", coral_type != "Wild/Outplant")
 # Fit 4-parameter log-logistic dose-response curves for mortality as function of DHW, by species, with min=0 and max=1
@@ -492,13 +497,13 @@ bootstrap_function <- function(iteration) {
   
   # Refit the model on the bootstrap sample
   boot_model <- tryCatch({
-    drm(
-      pct_mort ~ cummaxdhw, data = boot_data, curveid = coral_type, weights = n_total, type = "binomial",
-      logDose = NULL, fct = LL.4(
-        names = c("hill", "min", "max", "ED50"),
-        fixed = c(NA, 0, 1, NA)
+      drm(
+       pct_mort ~ cummaxdhw, data = boot_data, curveid = coral_type, weights = n_total, type = "binomial",
+        logDose = NULL, fct = LL.4(
+          names = c("hill", "min", "max", "ED50"),
+          fixed = c(NA, 0, 1, NA)
+        )
       )
-    )
   }, error = function(e) NULL)  # Handle errors gracefully
   
   # Skip iteration if the model failed to converge
@@ -508,7 +513,7 @@ bootstrap_function <- function(iteration) {
   preds <- predict(boot_model, newdata = nd)
   
   # Extract ED50 and ED95 for both coral types
-  ed_values <- as.tibble(ED(boot_model, c(50, 95), interval = "none"))$Estimate
+  ed_values <- as.tibble(ED(boot_model, c(50, 95), interval = "none", display = FALSE))$Estimate
   ed50_diff <- diff(ed_values[c(1,3)])  # ED50 difference
   ed95_diff <- diff(ed_values[c(2,4)])  # ED95 difference
   
@@ -590,9 +595,6 @@ ggplot(bootstrap_ed_long, aes(x = Difference, fill = Parameter)) +
   ) +
   theme_minimal() +
   xlim(-20, 100)
-
-
-
 ```
 
 
