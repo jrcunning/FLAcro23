@@ -31,6 +31,9 @@ df <- read_csv("data/processed/FLAcro23_data_processed.csv") %>%
 
 ### Map dataset in space and time
 ```{r map_data}
+# How many individual sites
+n_distinct(df1$site)
+
 # Get the maximum number of ramets of each species ever surveyed (on one date) at a siteclust
 # Get the sum of max total counted in each subregion
 ## This could underestimate, because diff sites in same siteclust surveyed on same date would be lost
@@ -93,6 +96,8 @@ ggplot(df, aes(x = date, fill = subregion)) +
   theme_classic() +
   labs(y = "Number of sites surveyed")
 
+range(df$date)
+
 # # Surveys by max DHW experienced anytime prior to survey
 ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
   geom_histogram(binwidth = 1, closed = "left") +
@@ -106,7 +111,7 @@ ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
 ```{r plot_mort, fig.width = 8, fig.height = 9}
 # Plot Percent mortality over time
 (mort.pts <- ggplot(df, aes(x = date, y = pct_mort, fill = subregion)) +
-  geom_point(aes(size = log10(n_total), shape = coral_type), alpha = 0.4, stroke = 0.2) +
+  geom_point(aes(size = sqrt(n_total), shape = coral_type), alpha = 0.4, stroke = 0.2) +
   scale_x_date(date_breaks = "months", date_labels = "%b") +
   scale_shape_manual(values = c(21, 22, 23)) +
   #scale_size_discrete(range = c(1,4)) +
@@ -170,7 +175,7 @@ glmer_fitted_mort <- res.glmer.f %>%
 
 # Remove legend for saving
 mort.fits.v2 <- mort.fits.v + theme(legend.position = "none")
-ggsave(mort.fits.v2, filename = "mort.fits.v.png", width = 100, height = 250, units = "mm")
+ggsave(mort.fits.v2, filename = "outputs/FigS1.png", width = 150, height = 200, units = "mm")
 
 # Make wide mortality table by subregion for each species
 mortSpecTableWide <- glmer_fitted_mort %>%
@@ -236,7 +241,7 @@ out.glmer.nospp %>%
 ```{r}
 # Alter map extent to create space for adding graphs on top of map
 mapfig2 <- basemap +
-  geom_point(data = dfs2, aes(x = lon, y = lat, color = subregion, size = maxn_cat, shape = species), alpha = 0.4) +
+  geom_point(data = dfs2, aes(x = lon, y = lat, color = subregion, size = sqrt(maxn), shape = species), alpha = 0.4) +
   coord_sf(xlim = c(-83.5, -79), ylim = c(23.6, 26.5), expand = FALSE) +
   theme(legend.position = "none")
 
@@ -320,7 +325,7 @@ outmapbars <- ggdraw() +
   draw_plot(dhwfig, height = 0.48, width = 0.4, x = 0.1, y = 0.445))
 
 # Save
-ggsave("outmap3_nospp_new.png", plot = outmap3, width = 183, height = 140, units = "mm")
+ggsave("outputs/Fig2.png", plot = outmap3, width = 183, height = 140, units = "mm")
 ```
 
 
@@ -331,6 +336,15 @@ ggsave("outmap3_nospp_new.png", plot = outmap3, width = 183, height = 140, units
 ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
   facet_grid(species~coral_type) +
   geom_point()
+
+ss <- filter(df, species == "APAL", cummaxdhw > 15)
+
+ggplot(ss, aes(x = coral_type, y = pct_mort)) +
+  # geom_violin() +
+  # geom_boxplot() +
+  geom_jitter()
+
+filter(ss, coral_type == "Wild", pct_mort < 50)
 ```
 
 
@@ -354,7 +368,7 @@ eds.res <- rownames_to_column(data.frame(ed_values), "par") %>% as_tibble() %>%
 nd <- expand.grid(species = unique(df$species), cummaxdhw = seq(0, 23, 0.1))
 
 # Number of bootstrap samples
-n_boot <- 1000
+n_boot <- 10000
 
 # Bootstrap function for both predictions and ED comparisons
 bootstrap_function <- function(iteration) {
@@ -430,22 +444,25 @@ ggplot(drc.res, aes(x = cummaxdhw, y = fit, color = species, fill = species)) +
   geom_line(size = 1) +
   geom_hline(yintercept = c(0.5, 0.95), linetype = 2) +
   geom_ribbon(aes(ymin = lower_PI, ymax = upper_PI), alpha = 0.2, linetype = 0) +
-  labs(x = "Cumulative Maximum DHW", y = "Percent Mortality") +
+  labs(x = "DHW (°C-weeks)", y = "Mortality") +
   theme_classic() +
-  scale_color_brewer(palette = "Set2", name = "Species", labels = c("A. cervicornis", "A. palmata")) +
-  scale_fill_brewer(palette = "Set2", name = "Species", labels = c("A. cervicornis", "A. palmata")) +
+  scale_color_brewer(palette = "Set2", name = "", labels = c("A. cervicornis", "A. palmata")) +
+  scale_fill_brewer(palette = "Set2", name = "", labels = c("A. cervicornis", "A. palmata")) +
+  scale_y_continuous(labels = scales::label_percent()) +
   geom_text(
     data = eds.res, 
     aes(label = round(as.numeric(Estimate), 1), x = Estimate, y = as.numeric(level)), 
     show.legend = FALSE, 
-    size = 6,
-    nudge_x = c(2, 2, -1.5, -2),
+    size = 4,
+    nudge_x = c(3, 2, -1.5, -2),
     nudge_y = c(0.05, -0.05, 0.05, 0.05)
   ) +
   theme(
     legend.position = c(0.8, 0.15),
     legend.text = element_text(face = "italic")
   )
+
+ggsave(filename = "outputs/Fig3.png", width = 89, height = 89, units = "mm")
 
 # Plot bootstrap distributions for ED differences
 bootstrap_ed_long <- tibble(
@@ -483,8 +500,13 @@ apal.m3 <- drm(pct_mort ~ cummaxdhw, data = apal, curveid = coral_type, weights 
            ## Max parameter is fixed to 1, min is set to 0
            fixed = c(NA, 0, 1, NA)))
 
+# Get ED50s and ED95s
+ed_values <- ED(apal.m3, c(0.5, 0.95), type = "absolute", interval = "delta", level = 0.95, display = FALSE)
+eds.res <- rownames_to_column(data.frame(ed_values), "par") %>% as_tibble() %>%
+  separate(par, sep = ":", into = c("par", "coral_type", "level"))
+
 # Number of bootstrap samples
-n_boot <- 1000
+n_boot <- 10000
 
 # Define new data for prediction (same doses across coral types)
 nd <- expand.grid(coral_type = unique(apal$coral_type), cummaxdhw = seq(0, 23, 0.1))
@@ -561,16 +583,26 @@ print(summary_ed_results)
 # Plot prediction intervals
 ggplot(drc.res, aes(x = cummaxdhw, y = fit, color = coral_type, fill = coral_type)) +
   geom_line(size = 1) +
+  geom_hline(yintercept = c(0.5, 0.95), linetype = 2) +
   geom_ribbon(aes(ymin = lower_PI, ymax = upper_PI), alpha = 0.2, linetype = 0) +
-  labs(
-    title = "Dose-Response Curve with Bootstrap Prediction Intervals",
-    x = "Cumulative Maximum DHW",
-    y = "Percent Mortality"
+  labs(x = "DHW (°C-weeks)", y = "Mortality") +
+  theme_classic() +
+  scale_color_brewer(palette = "Set2", name = "", labels = c("Outplant", "Wild")) +
+  scale_fill_brewer(palette = "Set2", name = "", labels = c("Outplant", "Wild")) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  geom_text(
+    data = eds.res,
+    aes(label = round(as.numeric(Estimate), 1), x = pmin(Estimate, 23), y = as.numeric(level)),
+    show.legend = FALSE,
+    size = 4,
+    nudge_x = c(-1, 0, 0.5, 0),
+    nudge_y = c(0.05, 0.05, -0.05, -0.05)
   ) +
-  theme_minimal() +
-  scale_color_brewer(palette = "Set2", name = "Coral Type") +
-  scale_fill_brewer(palette = "Set2", name = "Coral Type") +
-  theme(legend.position = "bottom")
+  theme(
+    legend.position = c(0.8, 0.15)
+  )
+
+ggsave(filename = "outputs/FigS2.png", width = 89, height = 89, units = "mm")
 
 # Plot bootstrap distributions for ED differences
 bootstrap_ed_long <- tibble(
