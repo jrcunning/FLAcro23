@@ -53,6 +53,11 @@ counts1 <- dfs %>%
   group_by(subregion) %>%
   summarize(maxtot1 = sum(maxn))
 
+dfs %>%
+  group_by(species, subregion) %>%
+  summarize(maxtot1 = sum(maxn)) %>%
+  arrange(subregion, species)
+
 # Get sum treating each original data_provider.sitename as unique site, and get max observed at that site (on any date),
 # and total by subregion
 ## This could overestimate, because diff data_providers could have surveyed same site/same corals, but
@@ -190,9 +195,10 @@ knitr::kable(mortSpecTableWide)
 ```{r apal_vs_acer}
 # Overall difference between species across whole time series
 # reduced model without species -- compare to full model with LRT for significance of species
-mod.glmer.nospp <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled + (1| siteclust/species),
+mod.glmer.nospp <- glmer(cbind(n_dead, n_alive) ~ subregion * date_scaled + (1| siteclust:species),
                          family = binomial,
                          data = df)
+
 anova(mod.glmer, mod.glmer.nospp, test = "Chisq")
 BIC(mod.glmer, mod.glmer.nospp)
 ### There is an overall effect of species.
@@ -220,7 +226,7 @@ rbind(contrast(emm, "pairwise"))
 #                                      date_scaled == c(mar1_scaled) ~ as.Date("2024-03-01")))
 
 # Get results from glmer that does NOT include species as fixed factor
-out.glmer.nospp <- emmeans(mod.glmer.nospp, specs = c("date_scaled", "subregion"), type = "response",
+out.glmer.nospp <- emmeans(mod.glmer.nospp2, specs = c("date_scaled", "subregion"), type = "response",
                at = list(date_scaled = c(oct1_scaled, mar1_scaled))) %>% as_tibble() %>%
              mutate(date = case_when(date_scaled == c(oct1_scaled) ~ as.Date("2023-10-01"),
                                      date_scaled == c(mar1_scaled) ~ as.Date("2024-03-01")))
@@ -237,6 +243,12 @@ out.glmer.nospp %>%
   dplyr::select(subregion, date, prob, asymp.LCL, asymp.UCL) %>%
   #pivot_wider(values_from = prob, names_from = date_scaled) %>%
   knitr::kable(caption = "Mortality from GLMER")
+
+# # estimates across all subregions?
+#  emmeans(mod.glmer.nospp, specs = c("date_scaled"), type = "response",
+#                at = list(date_scaled = c(oct1_scaled, mar1_scaled))) %>% as_tibble() %>%
+#              mutate(date = case_when(date_scaled == c(oct1_scaled) ~ as.Date("2023-10-01"),
+#                                      date_scaled == c(mar1_scaled) ~ as.Date("2024-03-01")))
 ```
 
 ### Plot mortality across both species
