@@ -52,6 +52,9 @@ dfs2 <- df %>%
 counts1 <- dfs %>%
   group_by(subregion) %>%
   summarize(maxtot1 = sum(maxn))
+counts1.bytype <- dfs %>%
+  group_by(subregion, coral_type) %>%
+  summarize(maxtot1 = sum(maxn))
 
 dfs %>%
   group_by(species, subregion) %>%
@@ -67,8 +70,20 @@ counts2 <- df1 %>%
   summarize(maxn = max(n_total)) %>%
   group_by(subregion) %>%
   summarize(maxtot2 = sum(maxn))
+counts2.bytype <- df1 %>%
+  group_by(site, subregion, species, coral_type) %>%
+  summarize(maxn = max(n_total)) %>%
+  group_by(subregion, coral_type) %>%
+  summarize(maxtot2 = sum(maxn))
 
 counts <- full_join(counts1, counts2)
+counts.bytype <- full_join(counts1.bytype, counts2.bytype) %>%
+  write_csv("subregion.counts.by.type.csv")
+
+counts.bytype %>%
+  group_by(coral_type) %>%
+  summarize(tot1 = sum(maxtot1), tot2 = sum(maxtot2)) %>%
+  write_csv("total.counts.by.type.csv")
 
 # Plot map of Florida
 # Download satellite map for Florida
@@ -226,7 +241,7 @@ rbind(contrast(emm, "pairwise"))
 #                                      date_scaled == c(mar1_scaled) ~ as.Date("2024-03-01")))
 
 # Get results from glmer that does NOT include species as fixed factor
-out.glmer.nospp <- emmeans(mod.glmer.nospp2, specs = c("date_scaled", "subregion"), type = "response",
+out.glmer.nospp <- emmeans(mod.glmer.nospp, specs = c("date_scaled", "subregion"), type = "response",
                at = list(date_scaled = c(oct1_scaled, mar1_scaled))) %>% as_tibble() %>%
              mutate(date = case_when(date_scaled == c(oct1_scaled) ~ as.Date("2023-10-01"),
                                      date_scaled == c(mar1_scaled) ~ as.Date("2024-03-01")))
@@ -269,8 +284,12 @@ mapfig2 <- basemap +
 
 
 # Create DHW plot to draw as inset on map
-dhwmean <- read_csv("data/processed/MeanDHW_subregions.csv")
-out <- read_csv("data/processed/DHW_siteclusts.csv")
+dhwmean <- read_csv("data/processed/MeanDHW_subregions.csv") %>%
+  mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys", 
+                                                  "Middle Keys", "Lower Keys", "Tortugas--Dry Tortugas NP")))
+out <- read_csv("data/processed/DHW_siteclusts.csv") %>%
+  mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys", 
+                                                  "Middle Keys", "Lower Keys", "Tortugas--Dry Tortugas NP")))
 new_dates <- seq.Date(from = as.Date("2024-01-01"), to = as.Date("2024-03-01"), by = "day")
 new_data <- expand_grid(date = new_dates, subregion = levels(dhwmean$subregion), dhw = 0)
 dhwmean <- bind_rows(dhwmean, new_data)
@@ -340,7 +359,7 @@ outmapbars <- ggdraw() +
   draw_plot(dhwfig, height = 0.48, width = 0.4, x = 0.1, y = 0.445))
 
 # Save
-ggsave("outputs/Fig2.png", plot = outmap3, width = 183, height = 140, units = "mm")
+ggsave("outputs/Fig2new.png", plot = outmap3, width = 183, height = 140, units = "mm")
 ```
 
 
