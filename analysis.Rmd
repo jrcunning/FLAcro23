@@ -47,6 +47,8 @@ dfs <- df %>%
 dfs2 <- df %>%
   group_by(lat, lon, subregion, species, coral_type) %>%
   summarize(maxn = max(n_total)) %>%
+  group_by(lat, lon, subregion, species) %>%
+  summarize(maxn = sum(maxn)) %>%
   mutate(maxn_cat = cut(maxn, breaks = c(0, 10, 100, 1000, 10000)))
 
 counts1 <- dfs %>%
@@ -268,19 +270,51 @@ out.glmer.nospp %>%
 
 ### Plot mortality across both species
 ```{r}
-# Alter map extent to create space for adding graphs on top of map
-mapfig2 <- basemap +
-  geom_point(data = dfs2, aes(x = lon, y = lat, color = subregion, size = sqrt(maxn), shape = species), alpha = 0.4) +
-  coord_sf(xlim = c(-83.5, -79), ylim = c(23.6, 26.5), expand = FALSE) +
-  theme(axis.text.x = element_text(hjust = c(0.5, 0.5,0.5,0.5, 1))) +
-  theme(legend.position = "none")
+# Determine size breaks for legend
+size_breaks <- c(10, 100, 1000, 5000)  # example breaks
+size_labels <- size_breaks
 
-# # Create points to overlay on satellite map for USF presentation?
-# justpoints <- ggplot(dfs2, aes(x = lon, y = lat, color = subregion, size = maxn_cat, shape = species)) +
-#   geom_point(alpha = 0.8) +
-#   theme_void() +
-#   theme(legend.position = "none")
-# ggsave(justpoints, filename = "justpoints.png", width = 207, height = 100, units = "mm")
+mapfig2 <- basemap +
+  theme(panel.background = element_rect(fill = "white")) +
+  geom_point(
+    data = dfs2,
+    aes(x = lon, y = lat, color = subregion, size = sqrt(maxn), shape = species),
+    alpha = 1
+  ) +
+  coord_sf(xlim = c(-83.5, -79), ylim = c(23.6, 26.5), expand = FALSE) +
+  scale_shape_manual(values = c(3, 4)) +
+  # Use breaks in sqrt-transformed scale, labels as original scale
+  scale_size_continuous(
+    breaks = sqrt(size_breaks),
+    labels = size_labels,
+    name = "maxn"
+  ) +
+  guides(
+    color = "none",  # Hide color legend
+    shape = guide_legend(title = "Species", order = 1),
+    size = guide_legend(order = 2,
+      title = "Ramets surveyed",
+      override.aes = list(
+        shape = 8,    # show both open circle and triangle
+        fill = NA,          # no fill
+        color = "black"     # outline color
+      )
+    )
+  ) +
+  theme(
+    axis.text.x = element_text(hjust = c(0.5, 0.5, 0.5, 0.5, 1)),
+    legend.position = c(0.99, 0.01),
+    legend.box = "horizontal",
+    legend.box.just = "bottom",
+    legend.justification = c(1, 0),
+    legend.background = element_blank(),       # Remove legend background
+    legend.key = element_blank(),              # Remove key boxes
+    legend.text = element_text(size = 5),      # Smaller text
+    legend.title.align = 0.5,
+    legend.title = element_text(size = 6),     # Smaller title
+    legend.key.size = unit(0.5, "lines")       # Smaller size keys
+  )
+
 
 
 # Create DHW plot to draw as inset on map
@@ -328,7 +362,7 @@ bars <- out.glmer.nospp %>%
              scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25), labels = c("0%", "", "50%", "", "100%")) +
              scale_x_discrete(labels = c(expression(italic(t)[1]), expression(italic(t)[2]))) +
              scale_color_manual(values = c("#F8766D","#B79F00","#00BA38","#00BFC4","#619CFF","#F564E3"), drop = FALSE) +
-             scale_fill_manual(values = c("#a6d96a", "#de2d26")) +
+             scale_fill_manual(values = c("white", "#de2d26")) +
              labs(x = "", y = "") +
              coord_cartesian(clip = 'off') +
              theme_classic() +
@@ -359,7 +393,51 @@ outmapbars <- ggdraw() +
   draw_plot(dhwfig, height = 0.48, width = 0.4, x = 0.1, y = 0.445))
 
 # Save
-ggsave("outputs/Fig2new.png", plot = outmap3, width = 183, height = 140, units = "mm")
+ggsave("outputs/Fig3.png", plot = outmap3, width = 183, height = 140, units = "mm")
+```
+
+# Pockets of survival?
+```{r}
+survivors <- df %>%
+  filter(date > "2024-01-01", pct_mort < 0.5) %>%
+  arrange(subregion, siteclust) %>%
+  print(n = nrow(.))
+
+ggplot(survivors, aes(x = lon, y = lat)) +
+  geom_point()
+
+basemap +
+  geom_point(data = survivors, aes(x = lon, y = lat, color = subregion, shape = species), alpha = 0.4, size = 3) +
+  coord_sf(xlim = c(-82, -79.5), ylim = c(24.6, 26.5), expand = FALSE) +
+  theme(axis.text.x = element_text(hjust = c(0.5, 0.5,0.5,0.5, 1))) +
+  theme(legend.position = "none")
+
+```
+
+# Survivors on northern reef extent in March 2024
+```{r}
+survivors2 <- df %>%
+  filter(date > "2024-03-01", n_alive > 0) %>%
+  arrange(subregion, siteclust)
+
+survivors2 %>%
+  print(n = nrow(.))
+
+survivors2 %>%
+  group_by(siteclust, subregion, species, coral_type) %>%
+  summarize(maxn_alive = max(n_alive)) %>%         # add together wild/outplant alive in each siteclust
+  group_by(subregion, species) %>%
+  summarize(tot_maxn_alive = sum(maxn_alive))
+
+counts1.byspp <- dfs %>%
+  group_by(subregion, species) %>%
+  summarize(maxtot1 = sum(maxn))
+
+# Mortality rates per species and subregion on March 1 2024
+glmer_fitted_mort %>%
+  filter(date == "2024-03-01") %>%
+  left_join(counts1.byspp) %>%
+  mutate(surviv_tot = round(maxtot1 * (1 - prob), 0))
 ```
 
 
@@ -371,14 +449,29 @@ ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
   facet_grid(species~coral_type) +
   geom_point()
 
-ss <- filter(df, species == "APAL", cummaxdhw > 15)
+ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
+  facet_grid(~species) +
+  geom_point(aes(size = n_total), alpha = 0.5)
 
-ggplot(ss, aes(x = coral_type, y = pct_mort)) +
-  # geom_violin() +
-  # geom_boxplot() +
-  geom_jitter()
+df %>%
+  count(species)
 
-filter(ss, coral_type == "Wild", pct_mort < 50)
+df %>% group_by(species) %>%
+  summarize(tot = sum(n_total))
+
+df %>%
+  dplyr::select(siteclust, species, pct_mort, n_total, cummaxdhw) %>%
+  write_csv(., "test.csv")
+
+
+df %>%
+  filter(pct_mort > 0.35, pct_mort < 0.65) %>%
+  count(species)
+
+df %>%
+  filter(pct_mort > 0.35, pct_mort < 0.65) %>%
+  group_by(species) %>%
+  summarize(mean_n_total = mean(n_total))
 ```
 
 
@@ -496,7 +589,7 @@ ggplot(drc.res, aes(x = cummaxdhw, y = fit, color = species, fill = species)) +
     legend.text = element_text(face = "italic")
   )
 
-ggsave(filename = "outputs/Fig3.png", width = 89, height = 89, units = "mm")
+ggsave(filename = "outputs/Fig4.png", width = 89, height = 89, units = "mm")
 
 # Plot bootstrap distributions for ED differences
 bootstrap_ed_long <- tibble(
