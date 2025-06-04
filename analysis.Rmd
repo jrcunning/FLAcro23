@@ -282,7 +282,7 @@ mapfig2 <- basemap +
     alpha = 1
   ) +
   coord_sf(xlim = c(-83.5, -79), ylim = c(23.6, 26.5), expand = FALSE) +
-  scale_shape_manual(values = c(3, 4)) +
+  scale_shape_manual(values = c(1, 4)) +
   # Use breaks in sqrt-transformed scale, labels as original scale
   scale_size_continuous(
     breaks = sqrt(size_breaks),
@@ -295,7 +295,7 @@ mapfig2 <- basemap +
     size = guide_legend(order = 2,
       title = "Ramets surveyed",
       override.aes = list(
-        shape = 8,    # show both open circle and triangle
+        shape = 13,    # 
         fill = NA,          # no fill
         color = "black"     # outline color
       )
@@ -321,16 +321,15 @@ mapfig2 <- basemap +
 dhwmean <- read_csv("data/processed/MeanDHW_subregions.csv") %>%
   mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys", 
                                                   "Middle Keys", "Lower Keys", "Tortugas--Dry Tortugas NP")))
-out <- read_csv("data/processed/DHW_siteclusts.csv") %>%
-  mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys", 
-                                                  "Middle Keys", "Lower Keys", "Tortugas--Dry Tortugas NP")))
 new_dates <- seq.Date(from = as.Date("2024-01-01"), to = as.Date("2024-03-01"), by = "day")
-new_data <- expand_grid(date = new_dates, subregion = levels(dhwmean$subregion), dhw = 0)
+new_data <- expand_grid(date = new_dates, subregion = levels(dhwmean$subregion), dhw = 0) %>%
+  mutate(subregion = factor(subregion, levels = levels(dhwmean$subregion)))
 dhwmean <- bind_rows(dhwmean, new_data)
+dhwmean
 library(ggh4x)
-dhwfig <- ggplot(out, aes(x = date, y = dhw, color = subregion)) +
-  geom_line(aes(group = siteclust), lwd = 0.2, alpha = 0.5) +
-  geom_line(data = dhwmean, lwd = 2, alpha = 0.6) +
+dhwfig <- ggplot(dhwmean, aes(x = date, y = dhw, color = subregion)) +
+  #geom_line(aes(group = siteclust), lwd = 0.2, alpha = 0.5) +
+  geom_line(data = dhwmean, lwd = 1, alpha = 0.6) +
   geom_segment(x = as.Date("2023-10-01"), xend = as.Date("2023-10-01"), y = -1, yend = 22, lty = 2, lwd = 0.1, color = "black") +
   geom_segment(x = as.Date("2024-03-01"), xend = as.Date("2024-03-01"), y = -1, yend = 9, lty = 2, lwd = 0.1, color = "black") +
   annotate("text", x = c(as.Date("2023-10-01"), as.Date("2024-03-01")), y = c(2, 2), 
@@ -349,30 +348,86 @@ dhwfig <- ggplot(out, aes(x = date, y = dhw, color = subregion)) +
 
 
 # Create barplots of mortality at t1 and t2 for each subregion
+# bars <- out.glmer.nospp %>%
+#   dplyr::select(subregion, date, dead = prob, asymp.LCL, asymp.UCL) %>%
+#   mutate(alive = 1 - dead, subregion2 = subregion) %>%
+#   pivot_longer(c(dead, alive), names_to = "cat", values_to = "val") %>%
+#   left_join(counts1) %>%
+#   mutate(label_expr = map2_chr(subregion2, maxtot1, ~{
+#     deparse1(bquote(atop(.(as.character(.x)), italic(N) == .(.y))))
+#   })) %>%
+#   nest(data = -subregion) %>%
+#   mutate(barplots = map(data, ~ggplot(., aes(x = factor(date))) +
+#              geom_col(aes(y = val, fill = cat), color = "black", lwd = 0.1) +
+#              geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0.1, width = 0.1) +
+#              geom_text(aes(x = 1.5, y = 1, label = label_expr, color = subregion2),
+#                        vjust = -0.25, size = 3.17, parse = TRUE, lineheight = 0.2) +   
+#              scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25), labels = c("0%", "", "50%", "", "100%")) +
+#              scale_x_discrete(labels = c(expression(italic(t)[1]), expression(italic(t)[2]))) +
+#              scale_color_manual(values = c("#F8766D","#B79F00","#00BA38","#00BFC4","#619CFF","#F564E3"), drop = FALSE) +
+#              scale_fill_manual(values = c("white", "#de2d26")) +
+#              labs(x = "", y = "") +
+#              coord_cartesian(clip = 'off') +
+#              theme_classic() +
+#              theme(text = element_text(size = 9),
+#                    legend.position = "none", 
+#                    axis.line = element_line(size = 0.1),
+#                    axis.ticks = element_line(size = 0.1),
+#                    plot.background = element_blank(), 
+#                    panel.background = element_blank(),
+#                    axis.text.x = element_text(angle = 0, hjust = c(0.5, 0.5)))))
+
 bars <- out.glmer.nospp %>%
   dplyr::select(subregion, date, dead = prob, asymp.LCL, asymp.UCL) %>%
-  mutate(alive = 1 - dead, subregion2 = subregion) %>%
+  mutate(alive = 1 - dead,
+         subregion2 = subregion) %>%
   pivot_longer(c(dead, alive), names_to = "cat", values_to = "val") %>%
   left_join(counts1) %>%
+  # Prepare separate labels
+  mutate(
+    region_label = as.character(subregion2),
+    n_label = paste0("italic(N) == ", maxtot1)
+  ) %>%
   nest(data = -subregion) %>%
   mutate(barplots = map(data, ~ggplot(., aes(x = factor(date))) +
              geom_col(aes(y = val, fill = cat), color = "black", lwd = 0.1) +
-             geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0.1, width = 0.1) +
-             geom_text(aes(x = 1.5, y = 1, label = paste(subregion2, "\n", "n =", maxtot1), color = subregion2), vjust = -0.25, size = 2) +
-             scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25), labels = c("0%", "", "50%", "", "100%")) +
-             scale_x_discrete(labels = c(expression(italic(t)[1]), expression(italic(t)[2]))) +
-             scale_color_manual(values = c("#F8766D","#B79F00","#00BA38","#00BFC4","#619CFF","#F564E3"), drop = FALSE) +
+             geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL),
+                            lwd = 0.1, width = 0.1) +
+
+             # Subregion name at top of plot
+             geom_text(aes(x = 1.5, y = 1.05, label = region_label, color = subregion2),
+                       vjust = 0, size = 3.17, parse = FALSE) +
+
+             # Italic N label below plot (like x-axis title)
+             annotate("text", x = 2.5, y = 0.5, angle = 90,
+                      label = unique(.$n_label),
+                      parse = TRUE, size = 2.4696,
+                      hjust = 0.5, vjust = 1,
+                      color = "black") +
+
+             scale_y_continuous(expand = c(0, 0),
+                   breaks = seq(0, 1, 0.25),
+                   labels = c("0%", "", "50%", "", "100%")) +
+             scale_x_discrete(labels = c(expression(italic(t)[1]),
+                                         expression(italic(t)[2]))) +
+             scale_color_manual(values = c("#F8766D", "#B79F00", "#00BA38",
+                                           "#00BFC4", "#619CFF", "#F564E3"),
+                                drop = FALSE) +
              scale_fill_manual(values = c("white", "#de2d26")) +
              labs(x = "", y = "") +
-             coord_cartesian(clip = 'off') +
+             coord_cartesian(ylim = c(0, 1), clip = 'off') +
              theme_classic() +
-             theme(legend.position = "none", 
+             theme(text = element_text(size = 9),
+                   legend.position = "none",
                    axis.line = element_line(size = 0.1),
                    axis.ticks = element_line(size = 0.1),
-                   plot.background = element_blank(), 
+                   plot.background = element_blank(),
                    panel.background = element_blank(),
-                   axis.text.x = element_text(angle = 0, hjust = c(0.5, 0.5)),
-                   axis.text.y = element_text(size = 5))))
+                   axis.text.x = element_text(angle = 0, hjust = c(0.5, 0.5)))
+  ))
+
+
+
 
 bars$barplots[[6]] <- bars$barplots[[6]] +
   labs(y = expression(italic("Acropora")~spp.~mortality)) +
@@ -381,19 +436,19 @@ bars$barplots[[6]] <- bars$barplots[[6]] +
 # Plot mortality barplots on top of the map
 outmapbars <- ggdraw() +
   draw_plot(mapfig2) +
-  draw_plot(bars$barplots[[1]], height = 0.25, width = 0.2, x = 0.775, y = 0.65) +
-  draw_plot(bars$barplots[[2]], height = 0.25, width = 0.2, x = 0.775, y = 0.41) +
-  draw_plot(bars$barplots[[3]], height = 0.25, width = 0.2, x = 0.675, y = 0.18) +
-  draw_plot(bars$barplots[[4]], height = 0.25, width = 0.2, x = 0.5, y = 0.075) +
-  draw_plot(bars$barplots[[5]], height = 0.25, width = 0.2, x = 0.3, y = 0.05) +
-  draw_plot(bars$barplots[[6]], height = 0.25, width = 0.2, x = 0.1, y = 0.05)
+  draw_plot(bars$barplots[[1]], height = 0.23, width = 0.19, x = 0.775, y = 0.65) +
+  draw_plot(bars$barplots[[2]], height = 0.23, width = 0.19, x = 0.775, y = 0.41) +
+  draw_plot(bars$barplots[[3]], height = 0.23, width = 0.19, x = 0.675, y = 0.18) +
+  draw_plot(bars$barplots[[4]], height = 0.23, width = 0.19, x = 0.5, y = 0.075) +
+  draw_plot(bars$barplots[[5]], height = 0.23, width = 0.19, x = 0.3, y = 0.03) +
+  draw_plot(bars$barplots[[6]], height = 0.23, width = 0.19, x = 0.1, y = 0.03)
 
 # Display map figure with additional plots
 (outmap3 <- outmapbars +
   draw_plot(dhwfig, height = 0.48, width = 0.4, x = 0.1, y = 0.445))
 
 # Save
-ggsave("outputs/Fig3.png", plot = outmap3, width = 183, height = 140, units = "mm")
+ggsave("outputs/Fig3.png", plot = outmap3, width = 183, height = 130.7, units = "mm")
 ```
 
 # Pockets of survival?
