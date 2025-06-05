@@ -270,56 +270,47 @@ out.glmer.nospp %>%
 
 ### Plot mortality across both species
 ```{r}
+sr_colors <- c('#1b9e77','#d95f02','#7570b3','#e7298a','#66a61e','#e6ab02')
+sr_colors <- unname(graf_palettes$bright[1:6])
+sr_colors <- unname(graf_palettes$fishy[1:6])
 # Determine size breaks for legend
 size_breaks <- c(10, 100, 1000, 5000)  # example breaks
 size_labels <- size_breaks
 
 mapfig2 <- basemap +
+  geom_sf(data = world, color = "black", lwd = 0.1) +
+  geom_rect(
+    aes(xmin = -79.5, xmax = -79, ymin = 25.5, ymax = 26),
+    fill = "white", color = NA
+  ) +
+  geom_rect(
+    aes(xmin = -79.7, xmax = -79.2, ymin = 23.5, ymax = 23.6),
+    fill = "white", color = NA
+  ) +
   theme(panel.background = element_rect(fill = "white")) +
   geom_point(
     data = dfs2,
-    aes(x = lon, y = lat, color = subregion, size = sqrt(maxn), shape = species),
+    aes(x = lon, y = lat, color = subregion, size = sqrt(maxn + 20), shape = species),
     alpha = 1
   ) +
-  coord_sf(xlim = c(-83.5, -79), ylim = c(23.6, 26.5), expand = FALSE) +
+  coord_sf(xlim = c(-83.45, -78.95), ylim = c(23.5, 26.4), expand = FALSE) +
   scale_shape_manual(values = c(1, 4)) +
-  # Use breaks in sqrt-transformed scale, labels as original scale
+  scale_color_manual(values = sr_colors) +
+  # Use breaks in log1p-transformed scale, labels as original scale
   scale_size_continuous(
-    breaks = sqrt(size_breaks),
+    range = c(0.5, 8),
+    breaks = sqrt(size_breaks + 20),
     labels = size_labels,
     name = "maxn"
   ) +
-  guides(
-    color = "none",  # Hide color legend
-    shape = guide_legend(title = "Species", order = 1),
-    size = guide_legend(order = 2,
-      title = "Ramets surveyed",
-      override.aes = list(
-        shape = 13,    # 
-        fill = NA,          # no fill
-        color = "black"     # outline color
-      )
-    )
-  ) +
-  theme(
-    axis.text.x = element_text(hjust = c(0.5, 0.5, 0.5, 0.5, 1)),
-    legend.position = c(0.99, 0.01),
-    legend.box = "horizontal",
-    legend.box.just = "bottom",
-    legend.justification = c(1, 0),
-    legend.background = element_blank(),       # Remove legend background
-    legend.key = element_blank(),              # Remove key boxes
-    legend.text = element_text(size = 5),      # Smaller text
-    legend.title.align = 0.5,
-    legend.title = element_text(size = 6),     # Smaller title
-    legend.key.size = unit(0.5, "lines")       # Smaller size keys
-  )
+  theme(legend.position = "none",
+        text = element_text(family = "Helvetica", size = 9))
 
 
 
 # Create DHW plot to draw as inset on map
 dhwmean <- read_csv("data/processed/MeanDHW_subregions.csv") %>%
-  mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys", 
+  mutate(subregion = factor(subregion, levels = c("Broward-Miami", "Biscayne", "Upper Keys",
                                                   "Middle Keys", "Lower Keys", "Tortugas--Dry Tortugas NP")))
 new_dates <- seq.Date(from = as.Date("2024-01-01"), to = as.Date("2024-03-01"), by = "day")
 new_data <- expand_grid(date = new_dates, subregion = levels(dhwmean$subregion), dhw = 0) %>%
@@ -329,54 +320,29 @@ dhwmean
 library(ggh4x)
 dhwfig <- ggplot(dhwmean, aes(x = date, y = dhw, color = subregion)) +
   #geom_line(aes(group = siteclust), lwd = 0.2, alpha = 0.5) +
-  geom_line(data = dhwmean, lwd = 1, alpha = 0.6) +
-  geom_segment(x = as.Date("2023-10-01"), xend = as.Date("2023-10-01"), y = -1, yend = 22, lty = 2, lwd = 0.1, color = "black") +
-  geom_segment(x = as.Date("2024-03-01"), xend = as.Date("2024-03-01"), y = -1, yend = 9, lty = 2, lwd = 0.1, color = "black") +
-  annotate("text", x = c(as.Date("2023-10-01"), as.Date("2024-03-01")), y = c(2, 2), 
+  geom_line(data = dhwmean, lwd = 0.4, alpha = 1) +
+  geom_segment(x = as.Date("2023-10-01"), xend = as.Date("2023-10-01"),
+               y = -1, yend = 22, lty = 2, lwd = 0.1, color = "black") +
+  geom_segment(x = as.Date("2024-03-01"), xend = as.Date("2024-03-01"),
+               y = -1, yend = 7, lty = 2, lwd = 0.1, color = "black") +
+  annotate("text", x = c(as.Date("2023-10-01"), as.Date("2024-03-01")), y = c(2, 2),
            label = c(expression(italic(t)[1]), expression(italic(t)[2])), hjust = 1.3) +
   scale_x_date(breaks = as.Date(c("2023-06-01", "2023-10-01", "2024-03-01")), date_labels = "%b-%y",
                date_minor_breaks = "1 month", guide = "axis_minor") +
+  scale_color_manual(values = sr_colors) +
   labs(x = "", y = "Degree Heating Weeks (°C-weeks)") +
   theme_classic() +
-  theme(legend.position = "none",
+  theme(text = element_text(family = "Helvetica", size = 9),
+        legend.position = "none",
         axis.line = element_line(size = 0.1),
         axis.ticks = element_line(size = 0.1),
-        axis.title.y = element_text(size = 8),
+        axis.title.y = element_text(size = 9),
         plot.background = element_blank(),
         panel.background = element_blank(),
         ggh4x.axis.ticks.length.minor = rel(1))
 
 
 # Create barplots of mortality at t1 and t2 for each subregion
-# bars <- out.glmer.nospp %>%
-#   dplyr::select(subregion, date, dead = prob, asymp.LCL, asymp.UCL) %>%
-#   mutate(alive = 1 - dead, subregion2 = subregion) %>%
-#   pivot_longer(c(dead, alive), names_to = "cat", values_to = "val") %>%
-#   left_join(counts1) %>%
-#   mutate(label_expr = map2_chr(subregion2, maxtot1, ~{
-#     deparse1(bquote(atop(.(as.character(.x)), italic(N) == .(.y))))
-#   })) %>%
-#   nest(data = -subregion) %>%
-#   mutate(barplots = map(data, ~ggplot(., aes(x = factor(date))) +
-#              geom_col(aes(y = val, fill = cat), color = "black", lwd = 0.1) +
-#              geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), lwd = 0.1, width = 0.1) +
-#              geom_text(aes(x = 1.5, y = 1, label = label_expr, color = subregion2),
-#                        vjust = -0.25, size = 3.17, parse = TRUE, lineheight = 0.2) +   
-#              scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25), labels = c("0%", "", "50%", "", "100%")) +
-#              scale_x_discrete(labels = c(expression(italic(t)[1]), expression(italic(t)[2]))) +
-#              scale_color_manual(values = c("#F8766D","#B79F00","#00BA38","#00BFC4","#619CFF","#F564E3"), drop = FALSE) +
-#              scale_fill_manual(values = c("white", "#de2d26")) +
-#              labs(x = "", y = "") +
-#              coord_cartesian(clip = 'off') +
-#              theme_classic() +
-#              theme(text = element_text(size = 9),
-#                    legend.position = "none", 
-#                    axis.line = element_line(size = 0.1),
-#                    axis.ticks = element_line(size = 0.1),
-#                    plot.background = element_blank(), 
-#                    panel.background = element_blank(),
-#                    axis.text.x = element_text(angle = 0, hjust = c(0.5, 0.5)))))
-
 bars <- out.glmer.nospp %>%
   dplyr::select(subregion, date, dead = prob, asymp.LCL, asymp.UCL) %>%
   mutate(alive = 1 - dead,
@@ -395,7 +361,7 @@ bars <- out.glmer.nospp %>%
                             lwd = 0.1, width = 0.1) +
 
              # Subregion name at top of plot
-             geom_text(aes(x = 1.5, y = 1.05, label = region_label, color = subregion2),
+             geom_text(aes(x = 1.5, y = 1.1, label = region_label, color = subregion2),
                        vjust = 0, size = 3.17, parse = FALSE) +
 
              # Italic N label below plot (like x-axis title)
@@ -410,14 +376,13 @@ bars <- out.glmer.nospp %>%
                    labels = c("0%", "", "50%", "", "100%")) +
              scale_x_discrete(labels = c(expression(italic(t)[1]),
                                          expression(italic(t)[2]))) +
-             scale_color_manual(values = c("#F8766D", "#B79F00", "#00BA38",
-                                           "#00BFC4", "#619CFF", "#F564E3"),
+             scale_color_manual(values = sr_colors,
                                 drop = FALSE) +
              scale_fill_manual(values = c("white", "#de2d26")) +
              labs(x = "", y = "") +
              coord_cartesian(ylim = c(0, 1), clip = 'off') +
              theme_classic() +
-             theme(text = element_text(size = 9),
+             theme(text = element_text(size = 9, family = "Helvetica"),
                    legend.position = "none",
                    axis.line = element_line(size = 0.1),
                    axis.ticks = element_line(size = 0.1),
@@ -431,24 +396,123 @@ bars <- out.glmer.nospp %>%
 
 bars$barplots[[6]] <- bars$barplots[[6]] +
   labs(y = expression(italic("Acropora")~spp.~mortality)) +
-  theme(axis.title.y = element_text(size = 8))
+  theme(axis.title.y = element_text(size = 9))
 
 # Plot mortality barplots on top of the map
 outmapbars <- ggdraw() +
   draw_plot(mapfig2) +
-  draw_plot(bars$barplots[[1]], height = 0.23, width = 0.19, x = 0.775, y = 0.65) +
-  draw_plot(bars$barplots[[2]], height = 0.23, width = 0.19, x = 0.775, y = 0.41) +
-  draw_plot(bars$barplots[[3]], height = 0.23, width = 0.19, x = 0.675, y = 0.18) +
-  draw_plot(bars$barplots[[4]], height = 0.23, width = 0.19, x = 0.5, y = 0.075) +
-  draw_plot(bars$barplots[[5]], height = 0.23, width = 0.19, x = 0.3, y = 0.03) +
-  draw_plot(bars$barplots[[6]], height = 0.23, width = 0.19, x = 0.1, y = 0.03)
+  draw_plot(bars$barplots[[1]], height = 0.24, width = 0.15, x = 0.775, y = 0.69) +
+  draw_plot(bars$barplots[[2]], height = 0.24, width = 0.15, x = 0.775, y = 0.45) +
+  draw_plot(bars$barplots[[3]], height = 0.24, width = 0.15, x = 0.68, y = 0.22) +
+  draw_plot(bars$barplots[[4]], height = 0.24, width = 0.15, x = 0.52, y = 0.075) +
+  draw_plot(bars$barplots[[5]], height = 0.24, width = 0.15, x = 0.32, y = 0.03) +
+  draw_plot(bars$barplots[[6]], height = 0.24, width = 0.15, x = 0.1, y = 0.05)
 
 # Display map figure with additional plots
-(outmap3 <- outmapbars +
-  draw_plot(dhwfig, height = 0.48, width = 0.4, x = 0.1, y = 0.445))
+outmap3 <- outmapbars +
+  draw_plot(dhwfig, height = 0.4, width = 0.35, x = 0.1, y = 0.52)
+
+
+
+# CUSTOM LEGEND
+# 1️⃣ Compute size ranges
+size_data_range <- range(sqrt(dfs2$maxn + 20))
+size_range <- c(0.5, 8)
+
+# 2️⃣ Create legend data (2 rows, 4 columns)
+legend_data <- expand.grid(
+  species = c("ACER", "APAL"),
+  maxn = size_breaks
+) %>%
+  mutate(
+    shape = ifelse(species == "ACER", 1, 4),
+    y = ifelse(species == "ACER", 1, 2),
+    x = match(maxn, size_breaks),
+    raw_size = sqrt(maxn + 20),
+    plotted_size = scales::rescale(raw_size, to = size_range, from = size_data_range)
+  )
+
+# 3️⃣ Compute dynamic column widths
+col_widths <- legend_data %>%
+  group_by(maxn) %>%
+  summarize(max_size = max(plotted_size)) %>%
+  arrange(maxn) %>%
+  mutate(spacing = max_size * 0.03 + 0.2)  # small buffer
+
+# Calculate cumulative x-positions (like we did with y before)
+col_widths <- col_widths %>%
+  mutate(x_offset = cumsum(lag(spacing, default = 0) + spacing)) %>%
+  mutate(x_final = x_offset)
+
+# 4️⃣ Merge dynamic x-positions back to legend_data
+legend_data <- legend_data %>%
+  left_join(col_widths %>% dplyr::select(maxn, x_final), by = "maxn") %>%
+  mutate(x = x_final)
+
+# 5️⃣ Compute row heights (like before for y)
+row_heights <- legend_data %>%
+  group_by(species) %>%
+  summarize(max_size = max(plotted_size)) %>%
+  mutate(y = ifelse(species == "ACER", 1, 2)) %>%  # manually assign row index
+  arrange(y) %>%
+  mutate(spacing = max_size * 0.02 + 0.1) %>%
+  mutate(y_offset = cumsum(lag(spacing, default = 0) + spacing)) %>%
+  mutate(y_final = max(y_offset) - y_offset + min(y_offset))
+
+
+# 6️⃣ Merge dynamic y-positions back to legend_data
+legend_data <- legend_data %>%
+  left_join(row_heights %>% dplyr::select(species, y_final), by = "species") %>%
+  mutate(y = y_final)
+
+# 7️⃣ Build the transposed legend matrix plot
+legend_matrix_plot <- ggplot(legend_data, aes(x = x, y = y)) +
+  geom_point(aes(shape = species, size = raw_size), color = "black") +
+  scale_shape_manual(values = c(1, 4)) +
+  scale_size_continuous(
+    limits = size_data_range,
+    range = size_range
+  ) +
+  # Column headers: size break labels (above each column)
+  annotate("text", x = col_widths$x_final, y = max(legend_data$y) + 0.42,
+           label = size_breaks, size = 2, hjust = 0.5) +
+  # Row labels: species names (left of each row)
+  annotate("text", x = min(legend_data$x) - 0.3, y = row_heights$y_final,
+            label = c(expression(italic("A. cervicornis")), expression(italic("A. palmata"))), size = 2.5, hjust = 1) +
+  # Column header label
+  annotate("text", x = mean(col_widths$x_final) + 0.1, y = max(legend_data$y) + 0.75,
+           label = expression(underline("# ramets surveyed")), size = 2.5, hjust = 0.5) +
+  # Row header label (underlined)
+  annotate("text", x = min(legend_data$x) - 0.3, y = max(legend_data$y) + 0.75,
+           label = expression(underline("Species")), size = 2.5, hjust = 1, parse = TRUE) +
+  coord_cartesian(clip = "off") +
+  theme_void() +
+  theme(
+    legend.position = "none",
+    plot.margin = margin(2, 2, 2, 2, unit = "pt")
+  )
+
+# Display the final legend matrix plot
+#legend_matrix_plot
+
+
+# Show the legend matrix plot
+#legend_matrix_plot
+
+
+
+
+
+
+(outmap4 <- outmap3 + draw_plot(legend_matrix_plot, height = 0.13, width = 0.13, x = 0.84, y = 0.08))
+
+# hist(df$n_total)
+# summary(df$n_total)
 
 # Save
-ggsave("outputs/Fig3.png", plot = outmap3, width = 183, height = 130.7, units = "mm")
+ggsave("outputs/Fig3a.png", plot = outmap4, width = 183, height = 130.7, units = "mm")
+#ggsave("outputs/Fig3.pdf", plot = outmap4, width = 183, height = 130.7, units = "mm")
+
 ```
 
 # Pockets of survival?
