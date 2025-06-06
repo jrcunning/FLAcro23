@@ -92,7 +92,7 @@ counts.bytype %>%
 world <- rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
 # Create base map of Florida
 basemap <- ggplot() +
-  geom_sf(data = world, lwd = 0.1, fill = "gray90") +
+  geom_sf(data = world, lwd = 0.1, fill = "gray70") +
   scale_fill_gradient2(high = "firebrick1", mid = "yellow", low = "forestgreen", 
                        midpoint = 0.5, limits = c(0, 1), na.value = NA,
                        labels = scales::label_percent(), name = "Corals\nbleached") +
@@ -270,21 +270,22 @@ out.glmer.nospp %>%
 
 ### Plot mortality across both species
 ```{r}
-sr_colors <- c('#1b9e77','#d95f02','#7570b3','#e7298a','#66a61e','#e6ab02')
-sr_colors <- unname(graf_palettes$bright[1:6])
+library(scales)
+#sr_colors <- c('#1b9e77','#d95f02','#7570b3','#e7298a','#66a61e','#e6ab02')
+#sr_colors <- unname(graf_palettes$bright[1:6])
 sr_colors <- unname(graf_palettes$fishy[1:6])
 # Determine size breaks for legend
 size_breaks <- c(10, 100, 1000, 5000)  # example breaks
 size_labels <- size_breaks
 
 mapfig2 <- basemap +
-  geom_sf(data = world, color = "black", lwd = 0.1) +
+  geom_sf(data = world, color = "black", fill = "gray70", lwd = 0.1) +
   geom_rect(
     aes(xmin = -79.5, xmax = -79, ymin = 25.5, ymax = 26),
     fill = "white", color = NA
   ) +
   geom_rect(
-    aes(xmin = -79.7, xmax = -79.2, ymin = 23.5, ymax = 23.6),
+    aes(xmin = -79.7, xmax = -79.2, ymin = 23.4, ymax = 23.6),
     fill = "white", color = NA
   ) +
   theme(panel.background = element_rect(fill = "white")) +
@@ -293,7 +294,7 @@ mapfig2 <- basemap +
     aes(x = lon, y = lat, color = subregion, size = sqrt(maxn + 20), shape = species),
     alpha = 1
   ) +
-  coord_sf(xlim = c(-83.45, -78.95), ylim = c(23.5, 26.4), expand = FALSE) +
+  coord_sf(xlim = c(-83.3, -79.1), ylim = c(23.45, 26.35), expand = FALSE) +
   scale_shape_manual(values = c(1, 4)) +
   scale_color_manual(values = sr_colors) +
   # Use breaks in log1p-transformed scale, labels as original scale
@@ -302,6 +303,14 @@ mapfig2 <- basemap +
     breaks = sqrt(size_breaks + 20),
     labels = size_labels,
     name = "maxn"
+  ) +
+  scale_x_continuous(
+    breaks = seq(-83, -80, by = 1),
+    labels = paste0(abs(seq(-83, -80, by = 1)), "°W")
+  ) +
+  scale_y_continuous(
+    breaks = seq(24, 26, by = 1),
+    labels = paste0(seq(24, 26, by = 1), "°N")
   ) +
   theme(legend.position = "none",
         text = element_text(family = "Helvetica", size = 9))
@@ -327,7 +336,7 @@ dhwfig <- ggplot(dhwmean, aes(x = date, y = dhw, color = subregion)) +
                y = -1, yend = 7, lty = 2, lwd = 0.1, color = "black") +
   annotate("text", x = c(as.Date("2023-10-01"), as.Date("2024-03-01")), y = c(2, 2),
            label = c(expression(italic(t)[1]), expression(italic(t)[2])), hjust = 1.3) +
-  scale_x_date(breaks = as.Date(c("2023-06-01", "2023-10-01", "2024-03-01")), date_labels = "%b-%y",
+  scale_x_date(breaks = as.Date(c("2023-06-01", "2023-10-01", "2024-03-01")), date_labels = "%b '%y",
                date_minor_breaks = "1 month", guide = "axis_minor") +
   scale_color_manual(values = sr_colors) +
   labs(x = "", y = "Degree Heating Weeks (°C-weeks)") +
@@ -361,15 +370,15 @@ bars <- out.glmer.nospp %>%
                             lwd = 0.1, width = 0.1) +
 
              # Subregion name at top of plot
-             geom_text(aes(x = 1.5, y = 1.1, label = region_label, color = subregion2),
+             geom_text(data = . %>% distinct(subregion2, region_label),
+                       aes(x = 1.5, y = 1.2, label = region_label, color = subregion2),
                        vjust = 0, size = 3.17, parse = FALSE) +
 
-             # Italic N label below plot (like x-axis title)
-             annotate("text", x = 2.5, y = 0.5, angle = 90,
-                      label = unique(.$n_label),
-                      parse = TRUE, size = 2.4696,
-                      hjust = 0.5, vjust = 1,
-                      color = "black") +
+             # Italic N label
+             geom_text(data = . %>% distinct(subregion2, n_label),
+                       aes(x = 1.5, y = 1.12, label = unique(.$n_label), color = subregion2),
+                      parse = TRUE, size = 2, angle = 0,
+                      hjust = 0.5, vjust = 1) +
 
              scale_y_continuous(expand = c(0, 0),
                    breaks = seq(0, 1, 0.25),
@@ -401,16 +410,16 @@ bars$barplots[[6]] <- bars$barplots[[6]] +
 # Plot mortality barplots on top of the map
 outmapbars <- ggdraw() +
   draw_plot(mapfig2) +
-  draw_plot(bars$barplots[[1]], height = 0.24, width = 0.15, x = 0.775, y = 0.69) +
-  draw_plot(bars$barplots[[2]], height = 0.24, width = 0.15, x = 0.775, y = 0.45) +
-  draw_plot(bars$barplots[[3]], height = 0.24, width = 0.15, x = 0.68, y = 0.22) +
-  draw_plot(bars$barplots[[4]], height = 0.24, width = 0.15, x = 0.52, y = 0.075) +
-  draw_plot(bars$barplots[[5]], height = 0.24, width = 0.15, x = 0.32, y = 0.03) +
-  draw_plot(bars$barplots[[6]], height = 0.24, width = 0.15, x = 0.1, y = 0.05)
+  draw_plot(bars$barplots[[1]], height = 0.24, width = 0.15, x = 0.8, y = 0.69) +
+  draw_plot(bars$barplots[[2]], height = 0.24, width = 0.15, x = 0.775, y = 0.44) +
+  draw_plot(bars$barplots[[3]], height = 0.24, width = 0.15, x = 0.66, y = 0.20) +
+  draw_plot(bars$barplots[[4]], height = 0.24, width = 0.15, x = 0.5, y = 0.09) +
+  draw_plot(bars$barplots[[5]], height = 0.24, width = 0.15, x = 0.3, y = 0.03) +
+  draw_plot(bars$barplots[[6]], height = 0.24, width = 0.15, x = 0.075, y = 0.05)
 
 # Display map figure with additional plots
 outmap3 <- outmapbars +
-  draw_plot(dhwfig, height = 0.4, width = 0.35, x = 0.1, y = 0.52)
+  draw_plot(dhwfig, height = 0.4, width = 0.35, x = 0.075, y = 0.52)
 
 
 
@@ -504,26 +513,31 @@ legend_matrix_plot <- ggplot(legend_data, aes(x = x, y = y)) +
 
 
 
-(outmap4 <- outmap3 + draw_plot(legend_matrix_plot, height = 0.13, width = 0.13, x = 0.84, y = 0.08))
+(outmap4 <- outmap3 + draw_plot(legend_matrix_plot, height = 0.13, width = 0.13, x = 0.84, y = 0.07) +
+    annotate("text", x = 0.6, y = 0.955, label = "Florida", size = 3.5))
 
 # hist(df$n_total)
 # summary(df$n_total)
 
 # Save
-ggsave("outputs/Fig3a.png", plot = outmap4, width = 183, height = 130.7, units = "mm")
-#ggsave("outputs/Fig3.pdf", plot = outmap4, width = 183, height = 130.7, units = "mm")
+ggsave("outputs/Fig3.png", plot = outmap4, width = 183, height = 139, units = "mm")
+ggsave("outputs/Fig3.pdf", plot = outmap4, width = 183, height = 139, units = "mm")
 
 ```
 
 # Pockets of survival?
 ```{r}
 survivors <- df %>%
-  filter(date > "2024-01-01", pct_mort < 0.5) %>%
+  filter(date > "2024-03-01", pct_mort < 0.5) %>%
   arrange(subregion, siteclust) %>%
   print(n = nrow(.))
 
 ggplot(survivors, aes(x = lon, y = lat)) +
   geom_point()
+
+survivors %>%
+  group_by(species) %>%
+  summarize(tot = sum(n_alive))
 
 basemap +
   geom_point(data = survivors, aes(x = lon, y = lat, color = subregion, shape = species), alpha = 0.4, size = 3) +
@@ -553,10 +567,62 @@ counts1.byspp <- dfs %>%
   summarize(maxtot1 = sum(maxn))
 
 # Mortality rates per species and subregion on March 1 2024
-glmer_fitted_mort %>%
+surv_est <- glmer_fitted_mort %>%
   filter(date == "2024-03-01") %>%
   left_join(counts1.byspp) %>%
-  mutate(surviv_tot = round(maxtot1 * (1 - prob), 0))
+  mutate(surviv_tot = round(maxtot1 * (1 - prob), 0)) %>%
+  dplyr::select(subregion, species, mort = prob, n_obs = maxtot1, n_alive = surviv_tot)
+
+surv_est
+
+surv_est %>%
+  mutate(mort = sprintf("%.4f", mort))
+
+surv_est <- surv_est %>%
+  mutate(
+    mort_percent = ifelse(
+      abs(mort - 1) < 1e-8,  # treat anything within 1e-8 of 1 as exactly 1
+      "100.00%",
+      paste0(floor(mort * 10000) / 100, "%")
+    )
+  )
+
+surv_est <- surv_est %>%
+  dplyr::select(subregion, species, n_obs, mort_percent, n_alive)
+
+surv_est %>%
+  mutate(pct = n_alive / sum(n_alive)) %>%
+  group_by(subregion) %>%
+  summarize(totpct = sum(pct))
+
+write_csv(surv_est, file = "outputs/surv_est.csv")
+
+surv_est %>% arrange(subregion)
+
+
+#full_join(glmer_fitted_mort, out.glmer.nospp, by = c("subregion", "date"))
+
+tables2 <- bind_rows(spp = glmer_fitted_mort, both = out.glmer.nospp, .id = "mod") %>%
+  dplyr::select(mod, subregion, species, date, prob) %>%
+  mutate(species = case_when(mod == "both" ~ "Both Spp.", TRUE ~ species)) %>%
+  dplyr::select(-mod) %>%
+  mutate(
+    prob = ifelse(
+      abs(prob - 1) < 1e-8,  # treat anything within 1e-8 of 1 as exactly 1
+      "100.00%",
+      paste0(floor(prob * 10000) / 100, "%")
+    )
+  ) %>%
+  pivot_wider(names_from = c(date, species), values_from = prob)
+
+
+tables2 <- counts1.byspp %>%
+  pivot_wider(names_from = species, values_from = maxtot1) %>%
+  full_join(tables2)
+
+
+
+write_csv(tables2, file = "outputs/TableS2.csv")
 ```
 
 
