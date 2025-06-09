@@ -273,7 +273,7 @@ out.glmer.nospp %>%
 library(scales)
 #sr_colors <- c('#1b9e77','#d95f02','#7570b3','#e7298a','#66a61e','#e6ab02')
 #sr_colors <- unname(graf_palettes$bright[1:6])
-sr_colors <- unname(graf_palettes$fishy[1:6])
+sr_colors <- unname(grafify::graf_palettes$fishy[1:6])
 # Determine size breaks for legend
 size_breaks <- c(10, 100, 1000, 5000)  # example breaks
 size_labels <- size_breaks
@@ -757,7 +757,7 @@ ggplot(drc.res, aes(x = cummaxdhw, y = fit, color = species, fill = species)) +
   geom_hline(yintercept = c(0.5, 0.95), linetype = 2) +
   geom_ribbon(aes(ymin = lower_PI, ymax = upper_PI), alpha = 0.2, linetype = 0) +
   labs(x = "DHW (°C-weeks)", y = "Mortality") +
-  theme_classic() +
+  theme_classic(base_size = 9, base_family = "Helvetica") +
   scale_color_brewer(palette = "Set2", name = "", labels = c("A. cervicornis", "A. palmata")) +
   scale_fill_brewer(palette = "Set2", name = "", labels = c("A. cervicornis", "A. palmata")) +
   scale_y_continuous(labels = scales::label_percent()) +
@@ -765,16 +765,18 @@ ggplot(drc.res, aes(x = cummaxdhw, y = fit, color = species, fill = species)) +
     data = eds.res, 
     aes(label = round(as.numeric(Estimate), 1), x = Estimate, y = as.numeric(level)), 
     show.legend = FALSE, 
-    size = 4,
+    size = 3.16, family = "Helvetica",
     nudge_x = c(3, 2, -1.5, -2),
     nudge_y = c(0.05, -0.05, 0.05, 0.05)
   ) +
   theme(
-    legend.position = c(0.8, 0.15),
-    legend.text = element_text(face = "italic")
+    legend.position = c(0.75, 0.2),
+    legend.text = element_text(face = "italic", size = 6, family = "Helvetica"),
+    legend.key.size = unit(3.5, "mm")
   )
 
 ggsave(filename = "outputs/Fig4.png", width = 89, height = 89, units = "mm")
+ggsave(filename = "outputs/Fig4.pdf", width = 55, height = 55, units = "mm")
 
 # Plot bootstrap distributions for ED differences
 bootstrap_ed_long <- tibble(
