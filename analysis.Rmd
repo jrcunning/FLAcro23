@@ -17,7 +17,7 @@ library(cowplot)
 library(drc)
 ```
 
-# Import processed dataset
+# Import processed data
 ```{r import_data}
 # Processed data with sites for each data provider
 df1 <- read_csv("data/processed/FLAcro23_data_processed_sites.csv") %>%
@@ -79,13 +79,15 @@ counts2.bytype <- df1 %>%
   summarize(maxtot2 = sum(maxn))
 
 counts <- full_join(counts1, counts2)
-counts.bytype <- full_join(counts1.bytype, counts2.bytype) %>%
-  write_csv("subregion.counts.by.type.csv")
+counts.bytype <- full_join(counts1.bytype, counts2.bytype) 
 
-counts.bytype %>%
-  group_by(coral_type) %>%
-  summarize(tot1 = sum(maxtot1), tot2 = sum(maxtot2)) %>%
-  write_csv("total.counts.by.type.csv")
+# counts.bytype %>%
+#   write_csv("subregion.counts.by.type.csv")
+
+# counts.bytype %>%
+#   group_by(coral_type) %>%
+#   summarize(tot1 = sum(maxtot1), tot2 = sum(maxtot2)) %>%
+#   write_csv("total.counts.by.type.csv")
 
 # Plot map of Florida
 # Download satellite map for Florida
@@ -130,7 +132,7 @@ ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
 ```
 
 
-# Spatial and temporal mortality patterns
+# Mortality over time
 
 ```{r plot_mort, fig.width = 8, fig.height = 9}
 # Plot Percent mortality over time
@@ -145,7 +147,7 @@ ggplot(df, aes(x = cummaxdhw, fill = subregion)) +
   labs(x = "Date", y = "Percent mortality"))
 ```
 
-### Model mortality over time by species and subregion
+### Model by species and subregion
 ```{r mod_mort, fig.width = 8, fig.height = 9}
 # Fit model using glmer (sites as random factors)
 # Rescale the date predictor
@@ -199,7 +201,8 @@ glmer_fitted_mort <- res.glmer.f %>%
 
 # Remove legend for saving
 mort.fits.v2 <- mort.fits.v + theme(legend.position = "none")
-ggsave(mort.fits.v2, filename = "outputs/FigS1.png", width = 150, height = 200, units = "mm")
+ggsave(mort.fits.v2, filename = "outputs/FigS2.png", width = 150, height = 200, units = "mm")
+ggsave(mort.fits.v2, filename = "outputs/FigS2.pdf", width = 150, height = 200, units = "mm")
 
 # Make wide mortality table by subregion for each species
 mortSpecTableWide <- glmer_fitted_mort %>%
@@ -208,7 +211,7 @@ mortSpecTableWide <- glmer_fitted_mort %>%
 knitr::kable(mortSpecTableWide)
 ```
 
-### Test for statistical differences between APAL and ACER
+### APAL vs. ACER
 ```{r apal_vs_acer}
 # Overall difference between species across whole time series
 # reduced model without species -- compare to full model with LRT for significance of species
@@ -234,26 +237,13 @@ rbind(contrast(emm, "pairwise"))
 ### are poorly constrained because the latest observations were Nov 10th 2023... So, not concerned about this being a false negative.
 ```
 
-### Estimate mortality across both species
+### Model across both species
 ```{r mod_allacro}
-# Get results from glmer that includes species, with estimates averaged across species
-# out.glmer <- emmeans(mod.glmer, specs = c("date_scaled", "subregion"), type = "response",
-#                at = list(date_scaled = c(oct1_scaled, mar1_scaled))) %>% as_tibble() %>%
-#              mutate(date = case_when(date_scaled == c(oct1_scaled) ~ as.Date("2023-10-01"),
-#                                      date_scaled == c(mar1_scaled) ~ as.Date("2024-03-01")))
-
 # Get results from glmer that does NOT include species as fixed factor
 out.glmer.nospp <- emmeans(mod.glmer.nospp, specs = c("date_scaled", "subregion"), type = "response",
                at = list(date_scaled = c(oct1_scaled, mar1_scaled))) %>% as_tibble() %>%
              mutate(date = case_when(date_scaled == c(oct1_scaled) ~ as.Date("2023-10-01"),
                                      date_scaled == c(mar1_scaled) ~ as.Date("2024-03-01")))
-
-
-#### NEED TO CHOOSE WHICH RESULT TO USE
-## result from glmer with species has massive confidence intervals (0-1) for MK and DRTO. seems problematic...
-    ## this is because the confidence intervals for ACER (individual) are 0-1, be
-## result from glmer without species has estimates that are not in between the species-specific estimates. is that a problem? Not necessarily -- just reflects differences in number of observations of diff species over diff time ranges. Biggest discrepancy is Biscayne, where lots of Acer was observed in summer/fall 2023, but not spring 2024, while more APAL was observed in 2024. In this case, fitting one model for all Acro independent of species may actually produce better estimates than the species-specific models, since they are both more data-poor. Going to go with the glmer without species, for this reason, and because it also produces interpretable confidence intervals, while the species-averaged estimates from the other model does not (for MK and DRTO, bc of Acer, see above).
-
 
 ## Make table for overall Acropora mortality for each subregion
 out.glmer.nospp %>%
@@ -261,18 +251,11 @@ out.glmer.nospp %>%
   #pivot_wider(values_from = prob, names_from = date_scaled) %>%
   knitr::kable(caption = "Mortality from GLMER")
 
-# # estimates across all subregions?
-#  emmeans(mod.glmer.nospp, specs = c("date_scaled"), type = "response",
-#                at = list(date_scaled = c(oct1_scaled, mar1_scaled))) %>% as_tibble() %>%
-#              mutate(date = case_when(date_scaled == c(oct1_scaled) ~ as.Date("2023-10-01"),
-#                                      date_scaled == c(mar1_scaled) ~ as.Date("2024-03-01")))
 ```
 
-### Plot mortality across both species
+### Plot: mortality at t1, t2
 ```{r}
 library(scales)
-#sr_colors <- c('#1b9e77','#d95f02','#7570b3','#e7298a','#66a61e','#e6ab02')
-#sr_colors <- unname(graf_palettes$bright[1:6])
 sr_colors <- unname(grafify::graf_palettes$fishy[1:6])
 # Determine size breaks for legend
 size_breaks <- c(10, 100, 1000, 5000)  # example breaks
@@ -325,7 +308,7 @@ new_dates <- seq.Date(from = as.Date("2024-01-01"), to = as.Date("2024-03-01"), 
 new_data <- expand_grid(date = new_dates, subregion = levels(dhwmean$subregion), dhw = 0) %>%
   mutate(subregion = factor(subregion, levels = levels(dhwmean$subregion)))
 dhwmean <- bind_rows(dhwmean, new_data)
-dhwmean
+
 library(ggh4x)
 dhwfig <- ggplot(dhwmean, aes(x = date, y = dhw, color = subregion)) +
   #geom_line(aes(group = siteclust), lwd = 0.2, alpha = 0.5) +
@@ -424,11 +407,11 @@ outmap3 <- outmapbars +
 
 
 # CUSTOM LEGEND
-# 1️⃣ Compute size ranges
+# Compute size ranges
 size_data_range <- range(sqrt(dfs2$maxn + 20))
 size_range <- c(0.5, 8)
 
-# 2️⃣ Create legend data (2 rows, 4 columns)
+# Create legend data (2 rows, 4 columns)
 legend_data <- expand.grid(
   species = c("ACER", "APAL"),
   maxn = size_breaks
@@ -441,7 +424,7 @@ legend_data <- expand.grid(
     plotted_size = scales::rescale(raw_size, to = size_range, from = size_data_range)
   )
 
-# 3️⃣ Compute dynamic column widths
+# Compute dynamic column widths
 col_widths <- legend_data %>%
   group_by(maxn) %>%
   summarize(max_size = max(plotted_size)) %>%
@@ -453,12 +436,12 @@ col_widths <- col_widths %>%
   mutate(x_offset = cumsum(lag(spacing, default = 0) + spacing)) %>%
   mutate(x_final = x_offset)
 
-# 4️⃣ Merge dynamic x-positions back to legend_data
+# Merge dynamic x-positions back to legend_data
 legend_data <- legend_data %>%
   left_join(col_widths %>% dplyr::select(maxn, x_final), by = "maxn") %>%
   mutate(x = x_final)
 
-# 5️⃣ Compute row heights (like before for y)
+# Compute row heights (like before for y)
 row_heights <- legend_data %>%
   group_by(species) %>%
   summarize(max_size = max(plotted_size)) %>%
@@ -469,12 +452,12 @@ row_heights <- legend_data %>%
   mutate(y_final = max(y_offset) - y_offset + min(y_offset))
 
 
-# 6️⃣ Merge dynamic y-positions back to legend_data
+# Merge dynamic y-positions back to legend_data
 legend_data <- legend_data %>%
   left_join(row_heights %>% dplyr::select(species, y_final), by = "species") %>%
   mutate(y = y_final)
 
-# 7️⃣ Build the transposed legend matrix plot
+# Build the transposed legend matrix plot
 legend_matrix_plot <- ggplot(legend_data, aes(x = x, y = y)) +
   geom_point(aes(shape = species, size = raw_size), color = "black") +
   scale_shape_manual(values = c(1, 4)) +
@@ -501,16 +484,6 @@ legend_matrix_plot <- ggplot(legend_data, aes(x = x, y = y)) +
     plot.margin = margin(2, 2, 2, 2, unit = "pt")
   )
 
-# Display the final legend matrix plot
-#legend_matrix_plot
-
-
-# Show the legend matrix plot
-#legend_matrix_plot
-
-
-
-
 
 
 (outmap4 <- outmap3 + draw_plot(legend_matrix_plot, height = 0.13, width = 0.13, x = 0.84, y = 0.07) +
@@ -525,86 +498,24 @@ ggsave("outputs/Fig3.pdf", plot = outmap4, width = 183, height = 139, units = "m
 
 ```
 
-# Pockets of survival?
+
+## Table: mortality and survivors
 ```{r}
-survivors <- df %>%
-  filter(date > "2024-03-01", pct_mort < 0.5) %>%
-  arrange(subregion, siteclust) %>%
-  print(n = nrow(.))
-
-ggplot(survivors, aes(x = lon, y = lat)) +
-  geom_point()
-
-survivors %>%
-  group_by(species) %>%
-  summarize(tot = sum(n_alive))
-
-basemap +
-  geom_point(data = survivors, aes(x = lon, y = lat, color = subregion, shape = species), alpha = 0.4, size = 3) +
-  coord_sf(xlim = c(-82, -79.5), ylim = c(24.6, 26.5), expand = FALSE) +
-  theme(axis.text.x = element_text(hjust = c(0.5, 0.5,0.5,0.5, 1))) +
-  theme(legend.position = "none")
-
-```
-
-# Survivors on northern reef extent in March 2024
-```{r}
-survivors2 <- df %>%
-  filter(date > "2024-03-01", n_alive > 0) %>%
-  arrange(subregion, siteclust)
-
-survivors2 %>%
-  print(n = nrow(.))
-
-survivors2 %>%
-  group_by(siteclust, subregion, species, coral_type) %>%
-  summarize(maxn_alive = max(n_alive)) %>%         # add together wild/outplant alive in each siteclust
-  group_by(subregion, species) %>%
-  summarize(tot_maxn_alive = sum(maxn_alive))
 
 counts1.byspp <- dfs %>%
   group_by(subregion, species) %>%
   summarize(maxtot1 = sum(maxn))
 
-# Mortality rates per species and subregion on March 1 2024
-surv_est <- glmer_fitted_mort %>%
-  filter(date == "2024-03-01") %>%
-  left_join(counts1.byspp) %>%
-  mutate(surviv_tot = round(maxtot1 * (1 - prob), 0)) %>%
-  dplyr::select(subregion, species, mort = prob, n_obs = maxtot1, n_alive = surviv_tot)
-
-surv_est
-
-surv_est %>%
-  mutate(mort = sprintf("%.4f", mort))
-
-surv_est <- surv_est %>%
-  mutate(
-    mort_percent = ifelse(
-      abs(mort - 1) < 1e-8,  # treat anything within 1e-8 of 1 as exactly 1
-      "100.00%",
-      paste0(floor(mort * 10000) / 100, "%")
-    )
-  )
-
-surv_est <- surv_est %>%
-  dplyr::select(subregion, species, n_obs, mort_percent, n_alive)
-
-surv_est %>%
-  mutate(pct = n_alive / sum(n_alive)) %>%
-  group_by(subregion) %>%
-  summarize(totpct = sum(pct))
-
-write_csv(surv_est, file = "outputs/surv_est.csv")
-
-surv_est %>% arrange(subregion)
-
-
-#full_join(glmer_fitted_mort, out.glmer.nospp, by = c("subregion", "date"))
 
 tables2 <- bind_rows(spp = glmer_fitted_mort, both = out.glmer.nospp, .id = "mod") %>%
   dplyr::select(mod, subregion, species, date, prob) %>%
   mutate(species = case_when(mod == "both" ~ "Both Spp.", TRUE ~ species)) %>%
+  full_join(counts1.byspp %>%
+      group_by(subregion) %>%
+      summarise(maxtot1 = sum(maxtot1)) %>%
+      mutate(species = "Both Spp.") %>%
+      bind_rows(counts1.byspp)) %>%
+  mutate(n_alive = round(maxtot1 * (1 - prob), 0)) %>%
   dplyr::select(-mod) %>%
   mutate(
     prob = ifelse(
@@ -613,12 +524,11 @@ tables2 <- bind_rows(spp = glmer_fitted_mort, both = out.glmer.nospp, .id = "mod
       paste0(floor(prob * 10000) / 100, "%")
     )
   ) %>%
-  pivot_wider(names_from = c(date, species), values_from = prob)
+  pivot_wider(names_from = date, values_from = c(prob, n_alive)) %>%
+  arrange(subregion, species)
 
 
-tables2 <- counts1.byspp %>%
-  pivot_wider(names_from = species, values_from = maxtot1) %>%
-  full_join(tables2)
+tables2
 
 
 
@@ -626,41 +536,19 @@ write_csv(tables2, file = "outputs/TableS2.csv")
 ```
 
 
-# Mortality rates with increasing heat stress
+# Mortality response curves
 
 ```{r plot_mort_dhw}
 # Plot all data to visualize
-ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
-  facet_grid(species~coral_type) +
-  geom_point()
 
 ggplot(df, aes(x = cummaxdhw, y = pct_mort)) +
   facet_grid(~species) +
   geom_point(aes(size = n_total), alpha = 0.5)
 
-df %>%
-  count(species)
-
-df %>% group_by(species) %>%
-  summarize(tot = sum(n_total))
-
-df %>%
-  dplyr::select(siteclust, species, pct_mort, n_total, cummaxdhw) %>%
-  write_csv(., "test.csv")
-
-
-df %>%
-  filter(pct_mort > 0.35, pct_mort < 0.65) %>%
-  count(species)
-
-df %>%
-  filter(pct_mort > 0.35, pct_mort < 0.65) %>%
-  group_by(species) %>%
-  summarize(mean_n_total = mean(n_total))
 ```
 
 
-### Compare *A. cervicornis* and *A. palmata* mortality response curves
+### APAL vs. ACER
 ```{r acer_vs_apal_mort_dhw}
 # Fit the initial model
 m3 <- drm(
@@ -800,9 +688,9 @@ ggplot(bootstrap_ed_long, aes(x = Difference, fill = Parameter)) +
   theme_minimal()
 ```
 
-### Compare wild vs. outplanted *A. palmata* mortality response curves
+### Wild vs. outplants
 
-There was not enough data for wild *A. cervicornis* to make the same comparison for that species.
+This is for *A. palmata* only. There were not enough data for wild *A. cervicornis* to make the same comparison for that species.
 
 ```{r apal_wild_outplant}
 # For APAL, model outplant vs. wild
@@ -916,7 +804,7 @@ ggplot(drc.res, aes(x = cummaxdhw, y = fit, color = coral_type, fill = coral_typ
     legend.position = c(0.8, 0.15)
   )
 
-ggsave(filename = "outputs/FigS2.png", width = 89, height = 89, units = "mm")
+
 
 # Plot bootstrap distributions for ED differences
 bootstrap_ed_long <- tibble(

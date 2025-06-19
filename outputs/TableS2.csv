@@ -1,0 +1,19 @@
+subregion,species,maxtot1,prob_2023-10-01,prob_2024-03-01,n_alive_2023-10-01,n_alive_2024-03-01
+Broward-Miami,ACER,1548,15.83%,39.04%,1303,944
+Broward-Miami,APAL,200,13.14%,30.68%,174,139
+Broward-Miami,Both Spp.,1748,15.49%,37.87%,1477,1086
+Biscayne,ACER,314,44.17%,99.72%,175,1
+Biscayne,APAL,2183,34.56%,88.9%,1429,242
+Biscayne,Both Spp.,2497,21.55%,90.78%,1959,230
+Upper Keys,ACER,4059,89.04%,96.61%,445,137
+Upper Keys,APAL,5861,94.78%,98.95%,306,61
+Upper Keys,Both Spp.,9920,92.04%,97.75%,789,222
+Middle Keys,ACER,1538,100.00%,100.00%,0,0
+Middle Keys,APAL,2443,99.28%,99.83%,17,4
+Middle Keys,Both Spp.,3981,99.81%,99.99%,7,0
+Lower Keys,ACER,18455,99.62%,99.99%,70,1
+Lower Keys,APAL,15038,98.44%,99.97%,234,4
+Lower Keys,Both Spp.,33493,99.42%,99.99%,192,3
+Dry Tortugas,ACER,540,99.99%,100.00%,0,0
+Dry Tortugas,APAL,177,100.00%,100.00%,0,0
+Dry Tortugas,Both Spp.,717,99.98%,100.00%,0,0
